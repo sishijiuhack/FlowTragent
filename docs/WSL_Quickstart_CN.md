@@ -25,11 +25,33 @@ git submodule update --init --recursive
 
 ## 2. 创建虚拟环境
 
+推荐使用 Python 3.10 或 3.11。不要使用 Python 3.13，因为 `numpy==1.26.4`、`torch==2.3.1` 等依赖在 Python 3.13 下可能没有稳定 wheel，会触发源码编译失败。
+
+如果你已经在项目里创建过错误版本的 `flowtragent_env`，先删除它：
+
+```bash
+rm -rf flowtragent_env
+```
+
+如果你正在使用 conda，最省事的方式是直接创建 Python 3.11 环境：
+
+```bash
+conda create -n flowtragent_py311 python=3.11 -y
+conda activate flowtragent_py311
+```
+
+如果你想使用系统 venv，请确认系统 Python 版本：
+
+```bash
+python3 --version
+python3.11 --version || true
+```
+
 ```bash
 sudo apt update
 sudo apt install -y python3-venv python3-pip git
 
-python3 -m venv flowtragent_env
+python3.11 -m venv flowtragent_env
 source flowtragent_env/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 ```
