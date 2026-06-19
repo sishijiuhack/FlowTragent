@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 from typing import Dict, List
 
@@ -133,6 +134,9 @@ class NovaClient:
         self._meta = None
 
     def _embed(self, texts: List[str]) -> np.ndarray:
+        if self.force_demo_index or os.getenv("FLOWTRAGENT_OFFLINE") == "1":
+            return np.vstack([_hash_embedding(text) for text in texts]).astype("float32")
+
         try:
             from sentence_transformers import SentenceTransformer
 
@@ -179,4 +183,3 @@ def _hash_embedding(text: str, dims: int = 384) -> np.ndarray:
     if not math.isfinite(float(vec.sum())):
         return np.zeros(dims, dtype="float32")
     return vec
-

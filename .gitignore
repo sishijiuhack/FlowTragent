@@ -1,4 +1,6 @@
 flowtragent_env/
+.pip_tmp/
+.pip_cache/
 __pycache__/
 *.pyc
 *.pyo
@@ -20,4 +22,3 @@ reports/*
 .DS_Store
 .vscode/
 .idea/
-
