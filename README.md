@@ -29,6 +29,8 @@ FlowTragent/
 
 ## Quick Start
 
+For WSL Ubuntu, see [docs/WSL_Quickstart_CN.md](docs/WSL_Quickstart_CN.md).
+
 ```bash
 cd ~/projects/FlowTragent
 python3 -m venv flowtragent_env
@@ -100,4 +102,3 @@ TMPDIR=~/pip-tmp PIP_CACHE_DIR=~/pip-cache python -m pip install -r requirements
 # WSL cannot reach Ollama from Windows or another WSL distro
 OLLAMA_HOST=0.0.0.0:11434 ollama serve
 ```
-
