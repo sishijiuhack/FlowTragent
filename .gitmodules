@@ -1,0 +1,3 @@
+[submodule "libs/nova-f"]
+	path = libs/nova-f
+	url = https://github.com/sishijiuhack/nova-f.git

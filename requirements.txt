@@ -1,0 +1,15 @@
+numpy==1.26.4
+pandas==2.2.3
+tqdm==4.66.5
+torch>=2.1.0
+sentence-transformers==5.1.2
+faiss-cpu==1.8.0
+scapy==2.5.0
+langchain>=0.3.0,<0.4.0
+langchain-community>=0.3.0,<0.4.0
+langgraph>=0.2.0,<0.3.0
+chromadb==0.5.5
+PyYAML==6.0.2
+Flask==3.0.3
+watchdog==4.0.2
+requests==2.32.3
