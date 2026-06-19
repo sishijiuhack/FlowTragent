@@ -150,7 +150,26 @@ python main.py \
 
 如果 Ollama 未启动，报告仍会生成，只是 `Agent Summary` 会提示 Ollama 不可用。
 
-## 8. live 抓包模式
+## 8. Web 界面
+
+启动 Flask Web 界面：
+
+```bash
+source flowtragent_env/bin/activate
+python web_app.py
+```
+
+然后在浏览器打开：
+
+```text
+http://127.0.0.1:5000
+```
+
+可以直接输入 payload，或上传 `.pcap/.pcapng` 文件生成报告。
+
+如果在 Windows 浏览器访问 WSL 服务失败，确认 Flask 监听地址，必要时把 `web_app.py` 里的 `127.0.0.1` 改为 `0.0.0.0`。
+
+## 9. live 抓包模式
 
 安装 tcpdump：
 
@@ -183,7 +202,7 @@ sudo tcpdump -i eth0 -w /tmp/test.pcap
 python main.py --mode pcap --input /tmp/test.pcap --output-dir ./reports --enable-rag
 ```
 
-## 9. 使用真实 NOVA-F 风格索引
+## 10. 使用真实 NOVA-F 风格索引
 
 FlowTragent 默认读取：
 
@@ -224,7 +243,7 @@ FLOWTRAGENT_OFFLINE=1 python scripts/build_demo_index.py \
   --output-dir data/index
 ```
 
-## 10. 常见错误修复
+## 11. 常见错误修复
 
 ### pip 提示 No space left on device
 
@@ -265,4 +284,3 @@ FLOWTRAGENT_OFFLINE=1 python main.py --mode pcap --input data/pcap/demo_attack.p
 OLLAMA_HOST=0.0.0.0:11434 ollama serve
 curl http://127.0.0.1:11434/api/tags
 ```
-

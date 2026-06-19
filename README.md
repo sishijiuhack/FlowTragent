@@ -60,6 +60,14 @@ python main.py --mode pcap --input data/pcap/demo_attack.pcap --demo-index --ena
 python main.py --mode pcap --input data/pcap/demo_attack.pcap --demo-index --enable-rag --enable-ollama
 ```
 
+## Web UI
+
+```bash
+python web_app.py
+```
+
+Open http://127.0.0.1:5000 and submit a payload or PCAP file.
+
 ## Live Capture Flow
 
 ```bash
