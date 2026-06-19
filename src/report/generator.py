@@ -26,6 +26,9 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
     for attack_type in analysis.get("attack_types", []):
         lines.append(f"- {attack_type}")
 
+    if analysis.get("llm_summary"):
+        lines.extend(["", "## Agent Summary", analysis["llm_summary"]])
+
     lines.extend(["", "## Top CVE Candidates"])
     top_cves = analysis.get("top_cves", [])
     if top_cves:
@@ -40,6 +43,12 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
     for item in analysis.get("timeline", []):
         lines.append(f"{item.get('step')}. {item.get('event')}")
 
+    rag_context = analysis.get("rag_context", [])
+    if rag_context:
+        lines.extend(["", "## RAG Context"])
+        for item in rag_context:
+            lines.append(f"- `{item.get('id')}`: {item.get('text')}")
+
     lines.extend(["", "## Recommendations"])
     for item in analysis.get("recommendations", []):
         lines.append(f"- {item}")
@@ -48,4 +57,3 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
     md_path.write_text("\n".join(lines), encoding="utf-8")
     json_path.write_text(json.dumps(analysis, ensure_ascii=False, indent=2), encoding="utf-8")
     return md_path
-

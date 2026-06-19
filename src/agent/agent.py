@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime
 from typing import Dict, List
 
@@ -16,6 +15,8 @@ class TraceAgent:
         candidates: List[Dict],
         source_file: str | None = None,
         csv_file: str | None = None,
+        rag_context: List[Dict] | None = None,
+        llm_summary: str | None = None,
     ) -> Dict:
         cve_scores: Dict[str, float] = {}
         evidence: Dict[str, str] = {}
@@ -45,8 +46,22 @@ class TraceAgent:
             "attack_types": attack_types,
             "top_cves": ranked,
             "timeline": timeline,
+            "rag_context": rag_context or [],
+            "llm_summary": llm_summary,
             "recommendations": self._recommend(attack_types, ranked),
         }
+
+    def build_llm_prompt(self, payloads: List[str], candidates: List[Dict], rag_context: List[Dict] | None = None) -> str:
+        payload_preview = "\n".join(self._summarize_payload(payload) for payload in payloads[:5])
+        cve_preview = "\n".join(f"- {item.get('cve')} score={item.get('score')}" for item in candidates[:8])
+        rag_preview = "\n".join(f"- {item.get('text')}" for item in (rag_context or [])[:5])
+        return (
+            "You are a security incident analyst. Summarize the likely attack, "
+            "candidate CVEs, evidence, and next response actions.\n\n"
+            f"Payloads:\n{payload_preview}\n\n"
+            f"Candidates:\n{cve_preview or 'None'}\n\n"
+            f"Knowledge:\n{rag_preview or 'None'}"
+        )
 
     @staticmethod
     def _infer_attack_types(payloads: List[str]) -> List[str]:
@@ -79,4 +94,3 @@ class TraceAgent:
         if any("Path traversal" in item for item in attack_types):
             recommendations.append("Check web root access controls and block encoded traversal sequences.")
         return recommendations
-

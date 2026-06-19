@@ -12,11 +12,13 @@ __pycache__/
 data/pcap/*
 data/csv/*
 data/index/*
+data/rag/*
 reports/*
 
 !data/pcap/.gitkeep
 !data/csv/.gitkeep
 !data/index/.gitkeep
+!data/rag/.gitkeep
 !reports/.gitkeep
 
 .DS_Store

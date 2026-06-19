@@ -183,3 +183,11 @@ def _hash_embedding(text: str, dims: int = 384) -> np.ndarray:
     if not math.isfinite(float(vec.sum())):
         return np.zeros(dims, dtype="float32")
     return vec
+
+
+def hash_embedding(text: str, dims: int = 384) -> List[float]:
+    vec = _hash_embedding(text, dims=dims)
+    norm = float(np.linalg.norm(vec))
+    if norm:
+        vec = vec / norm
+    return vec.astype("float32").tolist()

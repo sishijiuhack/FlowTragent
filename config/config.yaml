@@ -6,6 +6,7 @@ paths:
   pcap_dir: data/pcap
   csv_dir: data/csv
   index_dir: data/index
+  rag_dir: data/rag
   report_dir: reports
 
 retrieval:
@@ -16,4 +17,8 @@ retrieval:
 ollama:
   host: http://127.0.0.1:11434
   model: phi3:mini
+  enabled: false
 
+live_capture:
+  duration: 30
+  packet_count: 0
