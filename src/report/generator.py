@@ -115,6 +115,21 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
             if item.get("top_user_agents"):
                 lines.append(f"  - Top User-Agents: {_format_pairs(item.get('top_user_agents', []))}")
 
+    impact = analysis.get("impact_assessment")
+    if impact:
+        lines.extend(["", "## Impact Assessment"])
+        lines.append(f"- Verdict: `{impact.get('verdict')}`")
+        lines.append(f"- Confidence: `{impact.get('confidence')}`")
+        lines.append(f"- Reasoning: {impact.get('reasoning')}")
+        if impact.get("related_cves"):
+            lines.append(f"- Related CVEs: {', '.join(impact.get('related_cves', []))}")
+        if impact.get("evidence_ids"):
+            lines.append(f"- Evidence: {', '.join(impact.get('evidence_ids', []))}")
+        if impact.get("missing_evidence"):
+            lines.append("- Missing evidence:")
+            for item in impact.get("missing_evidence", []):
+                lines.append(f"  - {item}")
+
     rag_context = analysis.get("rag_context", [])
     if rag_context:
         lines.extend(["", "## RAG Context"])

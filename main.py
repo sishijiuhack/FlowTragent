@@ -9,6 +9,7 @@ from pathlib import Path
 from src.agent.agent import TraceAgent
 from src.correlation.attack_chain import detect_attack_stages
 from src.correlation.c2_detector import detect_c2
+from src.correlation.impact_analyzer import assess_impact
 from src.correlation.source_tracker import summarize_sources
 from src.correlation.timeline import build_timeline
 from src.core.nova_client import NovaClient
@@ -123,11 +124,14 @@ def _analyze(
         llm_summary=llm_summary,
     )
     if events:
+        attack_chain = detect_attack_stages(events, candidates)
+        c2_findings = detect_c2(events)
         analysis["structured_events"] = [event.to_dict() for event in events]
         analysis["attack_timeline"] = build_timeline(events)
-        analysis["attack_chain"] = detect_attack_stages(events, candidates)
-        analysis["c2_findings"] = detect_c2(events)
+        analysis["attack_chain"] = attack_chain
+        analysis["c2_findings"] = c2_findings
         analysis["source_summary"] = summarize_sources(events)
+        analysis["impact_assessment"] = assess_impact(events, attack_chain, c2_findings, candidates)
     return analysis
 
 
