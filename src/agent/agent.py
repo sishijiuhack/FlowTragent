@@ -34,6 +34,7 @@ class TraceAgent:
                 "cve": cve,
                 "score": round(score, 4),
                 "retrieval_score": details.get(cve, {}).get("retrieval_score"),
+                "raw_retrieval_score": details.get(cve, {}).get("raw_retrieval_score"),
                 "rule_bonus": details.get(cve, {}).get("rule_bonus", 0.0),
                 "rule_confirmed": details.get(cve, {}).get("rule_confirmed", False),
                 "signals": details.get(cve, {}).get("signals", []),

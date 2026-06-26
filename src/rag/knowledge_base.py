@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Dict, List
 
@@ -30,6 +31,7 @@ class KnowledgeBase:
         self._collection = None
 
     def initialize(self) -> None:
+        os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
         import chromadb
 
         self.persist_dir.mkdir(parents=True, exist_ok=True)

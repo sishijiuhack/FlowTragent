@@ -82,6 +82,8 @@ class NovaClient:
         for rank, (idx, score) in enumerate(zip(indexes[0], scores[0]), start=1):
             if idx < 0 or idx >= len(labels):
                 continue
+            raw_score = round(float(score), 4)
+            display_score = max(0.0, raw_score)
             neighbor_labels = self._normalize_labels(labels[idx])
             for cve in neighbor_labels:
                 if cve in seen:
@@ -90,8 +92,9 @@ class NovaClient:
                 raw_candidates.append(
                     {
                         "cve": cve,
-                        "score": round(float(score), 4),
-                        "retrieval_score": round(float(score), 4),
+                        "score": display_score,
+                        "retrieval_score": display_score,
+                        "raw_retrieval_score": raw_score,
                         "rank": rank,
                         "source_id": ids[idx] if idx < len(ids) else str(idx),
                         "neighbor_id": ids[idx] if idx < len(ids) else str(idx),
