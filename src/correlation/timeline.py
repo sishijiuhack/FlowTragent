@@ -19,6 +19,9 @@ def build_timeline(events: list[HttpEvent]) -> list[dict]:
                 "method": event.method,
                 "uri": event.uri,
                 "host": event.host,
+                "status_code": event.status_code,
+                "response_size": event.response_size,
+                "response_summary": event.response_summary,
                 "summary": f"{endpoint} {event.summary}".strip(),
             }
         )
@@ -29,4 +32,3 @@ def _endpoint(event: HttpEvent) -> str:
     if not event.src_ip or not event.dst_ip:
         return ""
     return f"{event.src_ip}:{event.src_port or '?'} -> {event.dst_ip}:{event.dst_port or '?'}"
-

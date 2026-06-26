@@ -55,16 +55,18 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
     attack_timeline = analysis.get("attack_timeline", [])
     if attack_timeline:
         lines.extend(["", "## Attack Timeline"])
-        lines.extend(["| Event | Time | Source | Target | Method | URI | Summary |", "| --- | --- | --- | --- | --- | --- | --- |"])
+        lines.extend(["| Event | Time | Source | Target | Method | URI | Status | Resp Size | Summary |", "| --- | --- | --- | --- | --- | --- | ---: | ---: | --- |"])
         for item in attack_timeline:
             lines.append(
-                "| {event_id} | {timestamp} | {source} | {target} | {method} | {uri} | `{summary}` |".format(
+                "| {event_id} | {timestamp} | {source} | {target} | {method} | {uri} | {status} | {response_size} | `{summary}` |".format(
                     event_id=item.get("event_id", ""),
                     timestamp=_fmt(item.get("timestamp")),
                     source=item.get("source") or "",
                     target=item.get("target") or "",
                     method=item.get("method") or "",
                     uri=_escape_table(item.get("uri") or ""),
+                    status=_fmt(item.get("status_code")),
+                    response_size=_fmt(item.get("response_size")),
                     summary=_escape_table(str(item.get("summary") or "")[:180]),
                 )
             )
@@ -123,6 +125,8 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
         lines.append(f"- Reasoning: {impact.get('reasoning')}")
         if impact.get("related_cves"):
             lines.append(f"- Related CVEs: {', '.join(impact.get('related_cves', []))}")
+        if impact.get("http_status_codes"):
+            lines.append(f"- HTTP status codes: {', '.join(str(code) for code in impact.get('http_status_codes', []))}")
         if impact.get("evidence_ids"):
             lines.append(f"- Evidence: {', '.join(impact.get('evidence_ids', []))}")
         if impact.get("missing_evidence"):

@@ -31,6 +31,9 @@ class HttpEvent(NetworkEvent):
     headers: Dict[str, str] = field(default_factory=dict)
     body: str | None = None
     status_code: int | None = None
+    response_reason: str | None = None
+    response_size: int | None = None
+    response_summary: str | None = None
 
 
 @dataclass
@@ -81,4 +84,3 @@ class C2Finding:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-

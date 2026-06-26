@@ -17,6 +17,9 @@ def assess_impact(
     stages = {str(stage.get("stage")) for stage in attack_chain}
     top_cves = [item for item in candidates if item.get("rule_confirmed") or float(item.get("final_score", item.get("score", 0))) >= 0.5]
     post_exploit = [stage for stage in attack_chain if stage.get("stage") in POST_EXPLOIT_STAGES]
+    response_codes = [event.status_code for event in events if event.status_code is not None]
+    successful_http = [code for code in response_codes if 200 <= code < 400]
+    rejected_http = [code for code in response_codes if 400 <= code < 500]
 
     evidence_ids = sorted(
         {
@@ -35,6 +38,10 @@ def assess_impact(
         verdict = "Possible successful exploitation"
         confidence = "medium"
         reasoning = "Post-exploitation indicators such as command execution, payload delivery, or webshell behavior were observed."
+    elif "Exploitation" in stages and top_cves and successful_http:
+        verdict = "Likely exploitation attempt with successful HTTP response"
+        confidence = "medium"
+        reasoning = "Exploit payload indicators, CVE evidence, and a 2xx/3xx HTTP response were observed, but no post-exploitation or C2 evidence was found."
     elif "Exploitation" in stages and top_cves:
         verdict = "Likely exploitation attempt"
         confidence = "medium"
@@ -57,8 +64,10 @@ def assess_impact(
         missing.append("No command execution, payload delivery, or webshell evidence observed in the provided traffic.")
     if not c2_findings:
         missing.append("No C2/beacon pattern detected in the provided traffic.")
-    if not any(event.status_code is not None for event in events):
+    if not response_codes:
         missing.append("No HTTP response status codes were available for success/failure validation.")
+    elif rejected_http and not successful_http:
+        missing.append("Only 4xx HTTP responses were observed for exploit-like requests; exploitation success is less likely from network evidence alone.")
 
     return {
         "verdict": verdict,
@@ -66,6 +75,6 @@ def assess_impact(
         "reasoning": reasoning,
         "evidence_ids": evidence_ids,
         "related_cves": [item.get("cve") for item in top_cves if item.get("cve")],
+        "http_status_codes": response_codes,
         "missing_evidence": missing,
     }
-

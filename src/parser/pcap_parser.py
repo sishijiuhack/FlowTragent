@@ -40,6 +40,7 @@ def parse_pcap_events(pcap_path: str) -> list[HttpEvent]:
         raise RuntimeError("scapy is required for PCAP parsing. Install with: pip install scapy") from exc
 
     events: list[HttpEvent] = []
+    pending_requests: dict[tuple[str | None, str | None, int | None, int | None], HttpEvent] = {}
     packets = rdpcap(pcap_path)
     for index, packet in enumerate(packets, start=1):
         if Raw not in packet:
@@ -66,7 +67,20 @@ def parse_pcap_events(pcap_path: str) -> list[HttpEvent]:
             src_port = int(packet[TCP].sport)
             dst_port = int(packet[TCP].dport)
 
-        method, uri, headers, body, status_code = _parse_http_text(text)
+        method, uri, headers, body, status_code, reason = _parse_http_text(text)
+        if status_code is not None and method is None:
+            request_key = (dst_ip, src_ip, dst_port, src_port)
+            request = pending_requests.get(request_key)
+            if request is not None:
+                request.status_code = status_code
+                request.response_reason = reason
+                request.response_size = len(raw)
+                request.response_summary = cleaned[:220] + ("..." if len(cleaned) > 220 else "")
+            continue
+
+        if method is None:
+            continue
+
         events.append(
             HttpEvent(
                 event_id=f"pkt-{index}",
@@ -87,10 +101,11 @@ def parse_pcap_events(pcap_path: str) -> list[HttpEvent]:
                 status_code=status_code,
             )
         )
+        pending_requests[(src_ip, dst_ip, src_port, dst_port)] = events[-1]
     return events
 
 
-def _parse_http_text(text: str) -> tuple[str | None, str | None, dict[str, str], str | None, int | None]:
+def _parse_http_text(text: str) -> tuple[str | None, str | None, dict[str, str], str | None, int | None, str | None]:
     head, _, body = text.partition("\r\n\r\n")
     if not body:
         head, _, body = text.partition("\n\n")
@@ -98,10 +113,12 @@ def _parse_http_text(text: str) -> tuple[str | None, str | None, dict[str, str],
     first = lines[0].strip() if lines else ""
     method = uri = None
     status_code = None
+    reason = None
     if first.startswith("HTTP/"):
         parts = first.split()
         if len(parts) >= 2 and parts[1].isdigit():
             status_code = int(parts[1])
+            reason = " ".join(parts[2:]) if len(parts) > 2 else None
     else:
         parts = first.split()
         if len(parts) >= 2:
@@ -114,4 +131,4 @@ def _parse_http_text(text: str) -> tuple[str | None, str | None, dict[str, str],
             continue
         key, value = line.split(":", 1)
         headers[key.strip().lower()] = value.strip()
-    return method, uri, headers, body or None, status_code
+    return method, uri, headers, body or None, status_code, reason
