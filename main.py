@@ -7,11 +7,15 @@ import json
 from pathlib import Path
 
 from src.agent.agent import TraceAgent
+from src.correlation.attack_chain import detect_attack_stages
+from src.correlation.c2_detector import detect_c2
+from src.correlation.source_tracker import summarize_sources
+from src.correlation.timeline import build_timeline
 from src.core.nova_client import NovaClient
 from src.core.ollama_client import OllamaClient
 from src.core.settings import load_config
 from src.parser.capture import capture_with_tcpdump
-from src.parser.pcap_parser import pcap_to_csv
+from src.parser.pcap_parser import parse_pcap_events, pcap_to_csv
 from src.rag.knowledge_base import KnowledgeBase
 from src.report.generator import write_report
 
@@ -53,18 +57,16 @@ def run_pcap(
     if extracted == 0:
         raise RuntimeError(f"No HTTP/TCP payloads were extracted from {pcap_path}")
 
-    payloads = []
-    import pandas as pd
-
-    frame = pd.read_csv(csv_path)
-    for value in frame["payload_clean"].fillna("").astype(str):
-        if value.strip():
-            payloads.append(value)
+    events = parse_pcap_events(str(pcap_path))
+    payloads = [event.payload_clean for event in events if event.payload_clean.strip()]
 
     nova = _build_nova(config, force_demo_index)
     all_candidates = []
-    for payload in payloads:
-        all_candidates.extend(nova.search(payload, top_k=top_k))
+    for event in events:
+        for rank, item in enumerate(nova.search(event.payload_clean, top_k=top_k), start=1):
+            item["event_id"] = event.event_id
+            item["rank"] = rank
+            all_candidates.append(item)
 
     analysis = _analyze(
         payloads=payloads,
@@ -74,6 +76,7 @@ def run_pcap(
         enable_ollama=enable_ollama,
         source_file=str(pcap_path),
         csv_file=str(csv_path),
+        events=events,
     )
     return write_report(analysis, output_dir=output_dir)
 
@@ -94,6 +97,7 @@ def _analyze(
     enable_ollama: bool,
     source_file: str | None = None,
     csv_file: str | None = None,
+    events: list | None = None,
 ) -> dict:
     agent = TraceAgent()
     rag_context = []
@@ -110,7 +114,7 @@ def _analyze(
         else:
             llm_summary = "Ollama is not available; rule-based analysis was used."
 
-    return agent.analyze(
+    analysis = agent.analyze(
         payloads=payloads,
         candidates=candidates,
         source_file=source_file,
@@ -118,6 +122,13 @@ def _analyze(
         rag_context=rag_context,
         llm_summary=llm_summary,
     )
+    if events:
+        analysis["structured_events"] = [event.to_dict() for event in events]
+        analysis["attack_timeline"] = build_timeline(events)
+        analysis["attack_chain"] = detect_attack_stages(events, candidates)
+        analysis["c2_findings"] = detect_c2(events)
+        analysis["source_summary"] = summarize_sources(events)
+    return analysis
 
 
 def main() -> None:
