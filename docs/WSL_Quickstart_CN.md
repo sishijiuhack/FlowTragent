@@ -271,6 +271,42 @@ FLOWTRAGENT_OFFLINE=1 python scripts/build_demo_index.py \
 - 如需补充真实索引，请使用你本地拥有授权的数据集，转换为 `id,payload_clean,cve_labels` CSV 后构建。
 - NOVA-F 新版子模块中提供了更多数据转换、评估、规则和结构化特征工具，可在 `libs/nova-f/utils/` 与 `libs/nova-f/src/` 下查看。
 
+如果官方数据集位于：
+
+```text
+libs/nova-f/data/datacon2025-xlab-httpcve/data-release/train.json.gz
+```
+
+可直接转换带 CVE 标签的训练样本：
+
+```bash
+python scripts/convert_datacon_dataset.py \
+  --input libs/nova-f/data/datacon2025-xlab-httpcve/data-release/train.json.gz \
+  --output data/csv/datacon_train_labeled.csv
+```
+
+再构建 FlowTragent 检索索引：
+
+```bash
+python scripts/build_demo_index.py \
+  --input data/csv/datacon_train_labeled.csv \
+  --output-dir data/index \
+  --model sentence-transformers/all-MiniLM-L6-v2
+```
+
+如果只想做离线冒烟测试：
+
+```bash
+FLOWTRAGENT_OFFLINE=1 python scripts/convert_datacon_dataset.py \
+  --input libs/nova-f/data/datacon2025-xlab-httpcve/data-release/train.json.gz \
+  --output data/csv/datacon_train_labeled_sample.csv \
+  --limit 1000
+
+FLOWTRAGENT_OFFLINE=1 python scripts/build_demo_index.py \
+  --input data/csv/datacon_train_labeled_sample.csv \
+  --output-dir data/index
+```
+
 ## 11. 常见错误修复
 
 ### pip 提示 No space left on device
