@@ -11,6 +11,8 @@ from typing import Dict, List
 
 import numpy as np
 
+from src.core.cve_reranker import label_votes, rerank_candidates
+
 
 DEMO_RECORDS = [
     {
@@ -76,22 +78,34 @@ class NovaClient:
         results: List[Dict] = []
         seen: set[str] = set()
 
-        for idx, score in zip(indexes[0], scores[0]):
+        raw_candidates: List[Dict] = []
+        for rank, (idx, score) in enumerate(zip(indexes[0], scores[0]), start=1):
             if idx < 0 or idx >= len(labels):
                 continue
-            for cve in self._normalize_labels(labels[idx]):
+            neighbor_labels = self._normalize_labels(labels[idx])
+            for cve in neighbor_labels:
                 if cve in seen:
                     continue
                 seen.add(cve)
-                results.append(
+                raw_candidates.append(
                     {
                         "cve": cve,
                         "score": round(float(score), 4),
+                        "retrieval_score": round(float(score), 4),
+                        "rank": rank,
                         "source_id": ids[idx] if idx < len(ids) else str(idx),
+                        "neighbor_id": ids[idx] if idx < len(ids) else str(idx),
                         "evidence": payloads[idx] if idx < len(payloads) else "",
+                        "neighbor_payload": payloads[idx] if idx < len(payloads) else "",
+                        "neighbor_labels": neighbor_labels,
+                        "engine": "nova-f",
                     }
                 )
                 break
+        results = rerank_candidates(payload, raw_candidates)
+        votes = label_votes(raw_candidates)
+        for item in results:
+            item["label_votes"] = votes
         return results
 
     def _load_index(self) -> None:

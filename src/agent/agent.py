@@ -20,14 +20,27 @@ class TraceAgent:
     ) -> Dict:
         cve_scores: Dict[str, float] = {}
         evidence: Dict[str, str] = {}
+        details: Dict[str, Dict] = {}
         for item in candidates:
             cve = item.get("cve", "UNKNOWN")
-            score = float(item.get("score", 0.0))
+            score = float(item.get("final_score", item.get("score", 0.0)))
             cve_scores[cve] = max(cve_scores.get(cve, 0.0), score)
             evidence.setdefault(cve, item.get("evidence", ""))
+            if cve not in details or score >= float(details[cve].get("final_score", details[cve].get("score", 0.0))):
+                details[cve] = item
 
         ranked = [
-            {"cve": cve, "score": round(score, 4), "evidence": evidence.get(cve, "")}
+            {
+                "cve": cve,
+                "score": round(score, 4),
+                "retrieval_score": details.get(cve, {}).get("retrieval_score"),
+                "rule_bonus": details.get(cve, {}).get("rule_bonus", 0.0),
+                "rule_confirmed": details.get(cve, {}).get("rule_confirmed", False),
+                "signals": details.get(cve, {}).get("signals", []),
+                "neighbor_id": details.get(cve, {}).get("neighbor_id"),
+                "neighbor_labels": details.get(cve, {}).get("neighbor_labels", []),
+                "evidence": evidence.get(cve, ""),
+            }
             for cve, score in sorted(cve_scores.items(), key=lambda row: row[1], reverse=True)
         ]
         attack_types = self._infer_attack_types(payloads)
@@ -88,7 +101,15 @@ class TraceAgent:
             "Correlate source IP, requested URI, user agent, and response status around the suspicious timestamps.",
         ]
         if ranked:
-            recommendations.append(f"Prioritize validation and patch review for {ranked[0]['cve']}.")
+            top = ranked[0]
+            if top.get("rule_confirmed"):
+                recommendations.append(
+                    f"Payload rule signals support {top['cve']}; prioritize validation and patch review for this CVE."
+                )
+            elif float(top.get("score", 0.0)) >= 0.5:
+                recommendations.append(f"Prioritize validation and patch review for {top['cve']}.")
+            else:
+                recommendations.append("NOVA-F similarity scores are low; validate CVE candidates against payload rules and service context before prioritizing patches.")
         if any("SQL" in item for item in attack_types):
             recommendations.append("Review database error logs and parameterized query coverage.")
         if any("Path traversal" in item for item in attack_types):

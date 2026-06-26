@@ -32,10 +32,19 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
     lines.extend(["", "## Top CVE Candidates"])
     top_cves = analysis.get("top_cves", [])
     if top_cves:
-        lines.extend(["| CVE | Score | Evidence |", "| --- | ---: | --- |"])
+        lines.extend(["| CVE | Final | Retrieval | Rule | Signals | Evidence |", "| --- | ---: | ---: | ---: | --- | --- |"])
         for item in top_cves:
             evidence = str(item.get("evidence", "")).replace("|", "\\|")[:160]
-            lines.append(f"| {item.get('cve')} | {item.get('score')} | `{evidence}` |")
+            lines.append(
+                "| {cve} | {final} | {retrieval} | {rule} | {signals} | `{evidence}` |".format(
+                    cve=item.get("cve"),
+                    final=item.get("score"),
+                    retrieval=_fmt(item.get("retrieval_score")),
+                    rule=_fmt(item.get("rule_bonus")),
+                    signals=", ".join(item.get("signals", [])),
+                    evidence=evidence,
+                )
+            )
     else:
         lines.append("- No CVE candidate passed retrieval.")
 
