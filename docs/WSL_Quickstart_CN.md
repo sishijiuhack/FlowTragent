@@ -265,6 +265,12 @@ FLOWTRAGENT_OFFLINE=1 python scripts/build_demo_index.py \
   --output-dir data/index
 ```
 
+注意：
+
+- DataCon2025 官方授权数据集当前未随仓库分发，也不建议直接提交到公开仓库。
+- 如需补充真实索引，请使用你本地拥有授权的数据集，转换为 `id,payload_clean,cve_labels` CSV 后构建。
+- NOVA-F 新版子模块中提供了更多数据转换、评估、规则和结构化特征工具，可在 `libs/nova-f/utils/` 与 `libs/nova-f/src/` 下查看。
+
 ## 11. 常见错误修复
 
 ### pip 提示 No space left on device
