@@ -58,6 +58,8 @@ python main.py --mode pcap --input data/pcap/demo_attack.pcap --demo-index
 ls -lh reports/
 ```
 
+The demo PCAP contains both a Log4Shell-style HTTP request and a `200 OK` response, so reports include response status and impact assessment evidence.
+
 ## Optional RAG and Ollama
 
 ```bash

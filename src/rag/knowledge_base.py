@@ -8,6 +8,10 @@ from typing import Dict, List
 
 from src.core.nova_client import hash_embedding
 
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ.setdefault("CHROMA_TELEMETRY", "False")
+os.environ.setdefault("CHROMADB_TELEMETRY", "False")
+
 
 SEED_DOCS = [
     {
@@ -31,7 +35,6 @@ class KnowledgeBase:
         self._collection = None
 
     def initialize(self) -> None:
-        os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
         import chromadb
 
         self.persist_dir.mkdir(parents=True, exist_ok=True)

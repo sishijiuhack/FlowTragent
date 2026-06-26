@@ -55,10 +55,10 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
     attack_timeline = analysis.get("attack_timeline", [])
     if attack_timeline:
         lines.extend(["", "## Attack Timeline"])
-        lines.extend(["| Event | Time | Source | Target | Method | URI | Status | Resp Size | Summary |", "| --- | --- | --- | --- | --- | --- | ---: | ---: | --- |"])
+        lines.extend(["| Event | Time | Source | Target | Method | URI | Status | Resp Size | Summary | Response |", "| --- | --- | --- | --- | --- | --- | ---: | ---: | --- | --- |"])
         for item in attack_timeline:
             lines.append(
-                "| {event_id} | {timestamp} | {source} | {target} | {method} | {uri} | {status} | {response_size} | `{summary}` |".format(
+                "| {event_id} | {timestamp} | {source} | {target} | {method} | {uri} | {status} | {response_size} | `{summary}` | `{response}` |".format(
                     event_id=item.get("event_id", ""),
                     timestamp=_fmt(item.get("timestamp")),
                     source=item.get("source") or "",
@@ -68,6 +68,7 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
                     status=_fmt(item.get("status_code")),
                     response_size=_fmt(item.get("response_size")),
                     summary=_escape_table(str(item.get("summary") or "")[:180]),
+                    response=_escape_table(str(item.get("response_summary") or "")[:120]),
                 )
             )
 

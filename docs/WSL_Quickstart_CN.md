@@ -99,6 +99,8 @@ CVE-2021-44228
 python tests/make_demo_pcap.py
 ```
 
+该 demo PCAP 同时包含请求和 `HTTP/1.1 200 OK` 响应，用于验证 request/response 配对、状态码提取和 Impact Assessment。
+
 运行 FlowTragent：
 
 ```bash

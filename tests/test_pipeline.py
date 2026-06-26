@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import json
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,12 @@ def main() -> None:
     )
     print(result.stdout)
     assert "report" in result.stdout
+    report_path = PROJECT_ROOT / json.loads(result.stdout)["report"]
+    report = report_path.read_text(encoding="utf-8")
+    assert "## Impact Assessment" in report
+    assert "Likely exploitation attempt with successful HTTP response" in report
+    assert "| pkt-1 |" in report
+    assert "| 200 |" in report
 
 
 if __name__ == "__main__":
