@@ -254,7 +254,7 @@ id,payload_clean,cve_labels
 python scripts/build_demo_index.py \
   --input data/csv/train_payloads.csv \
   --output-dir data/index \
-  --model sentence-transformers/all-MiniLM-L6-v2
+  --model libs/nova-f/models/all-MiniLM-L6-v2
 ```
 
 离线或 HuggingFace 不可用时，可使用本地哈希 embedding：
@@ -291,7 +291,7 @@ python scripts/convert_datacon_dataset.py \
 python scripts/build_demo_index.py \
   --input data/csv/datacon_train_labeled.csv \
   --output-dir data/index \
-  --model sentence-transformers/all-MiniLM-L6-v2
+  --model libs/nova-f/models/all-MiniLM-L6-v2
 ```
 
 如果只想做离线冒烟测试：
@@ -306,6 +306,16 @@ FLOWTRAGENT_OFFLINE=1 python scripts/build_demo_index.py \
   --input data/csv/datacon_train_labeled_sample.csv \
   --output-dir data/index
 ```
+
+本地可用模型目录：
+
+```text
+libs/nova-f/models/all-MiniLM-L6-v2
+libs/nova-f/models/bge-small-en-v1.5
+libs/nova-f/models/e5-small-v2
+```
+
+默认推荐先用 `all-MiniLM-L6-v2`，速度和资源占用更适合 WSL CPU 环境。
 
 ## 11. 常见错误修复
 

