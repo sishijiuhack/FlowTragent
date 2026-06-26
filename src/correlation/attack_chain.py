@@ -9,8 +9,8 @@ from src.event.models import AttackStage, HttpEvent
 
 SCAN_PATHS = ("/.env", "/wp-login", "/phpinfo", "/cgi-bin", "/actuator", "/server-status")
 SCANNER_UA = ("curl", "python-requests", "go-http-client", "nuclei", "masscan", "zgrab")
-RCE_MARKERS = ("cmd=", "exec=", "bash -c", "powershell", "cmd.exe", "whoami", "uname", "id%20")
-DOWNLOAD_MARKERS = ("wget ", "curl ", "certutil", ".sh", ".exe", ".dll", ".jsp", ".php", ".aspx")
+RCE_MARKERS = ("cmd=", "exec=", "bash -c", "powershell", "cmd.exe", "whoami", "uname", "id%20", "whoami%20", "sh%20", "bash%20")
+DOWNLOAD_MARKERS = ("wget ", "wget%20", "curl ", "curl%20", "certutil", ".sh", ".exe", ".dll", ".jsp", ".php", ".aspx", "-o%20", "-o ")
 WEBSHELL_MARKERS = ("multipart/form-data", "cmd=", "pass=", "shell=", "exec=", "action=")
 EXPLOIT_MARKERS = ("${jndi:", "ldap://", "rmi://", "../", "%2e%2e", "/etc/passwd", "union select", "sleep(")
 
@@ -77,21 +77,25 @@ def _detect_command_execution(events: list[HttpEvent]) -> list[AttackStage]:
     matched = [event for event in events if any(marker in event.payload_clean.lower() for marker in RCE_MARKERS)]
     if not matched:
         return []
-    return [_stage("Command Execution", "Command execution indicators in HTTP payload", "medium", matched, "Command execution keywords were observed.")]
+    confidence = "high" if any(event.status_code and 200 <= event.status_code < 400 for event in matched) else "medium"
+    return [_stage("Command Execution", "Command execution indicators in HTTP payload", confidence, matched, "Command execution keywords were observed.")]
 
 
 def _detect_payload_delivery(events: list[HttpEvent]) -> list[AttackStage]:
     matched = [event for event in events if any(marker in event.payload_clean.lower() for marker in DOWNLOAD_MARKERS)]
     if not matched:
         return []
-    return [_stage("Payload Delivery", "Payload download or script delivery", "medium", matched, "Download or executable/script indicators were observed.")]
+    confidence = "high" if any(event.status_code and 200 <= event.status_code < 400 for event in matched) else "medium"
+    return [_stage("Payload Delivery", "Payload download or script delivery", confidence, matched, "Download or executable/script indicators were observed.")]
 
 
 def _detect_webshell(events: list[HttpEvent]) -> list[AttackStage]:
     matched = [event for event in events if any(marker in event.payload_clean.lower() for marker in WEBSHELL_MARKERS)]
     if not matched:
         return []
-    return [_stage("WebShell / Backdoor", "Possible webshell interaction", "low", matched, "Webshell-like parameter or upload indicators were observed.")]
+    repeated_targets = len({event.uri for event in matched if event.uri}) < len(matched)
+    confidence = "medium" if repeated_targets or any(event.status_code and 200 <= event.status_code < 400 for event in matched) else "low"
+    return [_stage("WebShell / Backdoor", "Possible webshell interaction", confidence, matched, "Webshell-like parameter or upload indicators were observed.")]
 
 
 def _stage(stage: str, technique: str, confidence: str, events: list[HttpEvent], reasoning: str) -> AttackStage:
@@ -107,4 +111,3 @@ def _stage(stage: str, technique: str, confidence: str, events: list[HttpEvent],
         evidence_ids=[event.event_id for event in events],
         reasoning=reasoning,
     )
-

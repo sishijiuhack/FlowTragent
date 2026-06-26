@@ -34,12 +34,20 @@ def detect_c2(events: list[HttpEvent]) -> list[dict]:
             indicators.append("stable user-agent")
         if len(uris) <= max(2, len(ordered) // 3):
             indicators.append("repeated URI pattern")
+        small_responses = [event for event in ordered if event.response_size is not None and event.response_size <= 120]
+        if len(small_responses) >= len(ordered) * 0.75:
+            indicators.append("small repeated responses")
+        methods = {event.method for event in ordered if event.method}
+        if methods and methods <= {"GET", "POST"}:
+            indicators.append("beacon-like HTTP method pattern")
         if not indicators:
             continue
+        strong_timing = any(indicator.startswith("regular interval") for indicator in indicators)
+        confidence = "high" if strong_timing and len(indicators) >= 3 else "medium" if len(indicators) >= 2 else "low"
         findings.append(
             C2Finding(
                 c2_type="HTTP Beacon",
-                confidence="medium" if len(indicators) >= 2 else "low",
+                confidence=confidence,
                 src_ip=src_ip,
                 dst_ip=dst_ip,
                 dst_port=dst_port,
@@ -53,4 +61,3 @@ def detect_c2(events: list[HttpEvent]) -> list[dict]:
             )
         )
     return [finding.to_dict() for finding in findings]
-

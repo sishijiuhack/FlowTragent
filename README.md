@@ -60,6 +60,16 @@ ls -lh reports/
 
 The demo PCAP contains both a Log4Shell-style HTTP request and a `200 OK` response, so reports include response status and impact assessment evidence.
 
+Additional demo traffic:
+
+```bash
+python tests/make_post_exploit_pcap.py
+python main.py --mode pcap --input data/pcap/demo_post_exploit.pcap --enable-rag
+
+python tests/make_http_beacon_pcap.py
+python main.py --mode pcap --input data/pcap/demo_http_beacon.pcap --enable-rag
+```
+
 ## Optional RAG and Ollama
 
 ```bash

@@ -101,6 +101,20 @@ python tests/make_demo_pcap.py
 
 该 demo PCAP 同时包含请求和 `HTTP/1.1 200 OK` 响应，用于验证 request/response 配对、状态码提取和 Impact Assessment。
 
+生成命令执行 / payload 下载样本：
+
+```bash
+python tests/make_post_exploit_pcap.py
+python main.py --mode pcap --input data/pcap/demo_post_exploit.pcap --enable-rag
+```
+
+生成 HTTP beacon / C2 样本：
+
+```bash
+python tests/make_http_beacon_pcap.py
+python main.py --mode pcap --input data/pcap/demo_http_beacon.pcap --enable-rag
+```
+
 运行 FlowTragent：
 
 ```bash

@@ -30,10 +30,21 @@ def assess_impact(
         }
     )
 
-    if c2_findings:
+    high_conf_c2 = [finding for finding in c2_findings if finding.get("confidence") == "high"]
+    high_conf_post_exploit = [stage for stage in post_exploit if stage.get("confidence") == "high"]
+
+    if high_conf_c2 and post_exploit:
+        verdict = "Likely successful exploitation with C2 indicators"
+        confidence = "high"
+        reasoning = "Post-exploitation behavior and high-confidence C2/beacon communication were both detected."
+    elif c2_findings:
         verdict = "Possible successful exploitation with C2 indicators"
         confidence = "medium"
         reasoning = "Suspicious C2/beacon communication was detected after exploit-related traffic."
+    elif high_conf_post_exploit:
+        verdict = "Likely successful exploitation"
+        confidence = "high"
+        reasoning = "High-confidence post-exploitation indicators such as command execution or payload delivery were observed."
     elif post_exploit:
         verdict = "Possible successful exploitation"
         confidence = "medium"
