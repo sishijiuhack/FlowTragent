@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 
 
 LLM_SUMMARY_SCHEMA_VERSION = "llm-summary-v1"
+RETRYABLE_LLM_STATUSES = {"empty_response", "invalid_json"}
 
 
 def build_structured_llm_prompt(analysis: Dict[str, Any]) -> str:
@@ -58,6 +59,23 @@ def build_structured_llm_prompt(analysis: Dict[str, Any]) -> str:
     )
 
 
+def build_llm_repair_prompt(raw_text: str | None, analysis: Dict[str, Any]) -> str:
+    """Ask the model to repair a previous response into strict JSON."""
+    allowed_ids = [
+        str(item.get("evidence_id"))
+        for item in (analysis.get("agent_findings") or {}).get("evidence_pack", [])
+        if item.get("evidence_id")
+    ]
+    return (
+        "Repair the previous response into valid JSON only. Do not add markdown fences. "
+        f'Use schema_version "{LLM_SUMMARY_SCHEMA_VERSION}". '
+        "supported_claims evidence_ids must be selected only from this list: "
+        f"{allowed_ids}. Claims without valid evidence IDs must go to unsupported_claims.\n\n"
+        "Required JSON keys: schema_version, summary, supported_claims, unsupported_claims, recommended_actions.\n\n"
+        f"Previous response:\n{raw_text or ''}"
+    )
+
+
 def parse_and_validate_llm_summary(raw_text: str | None, analysis: Dict[str, Any], model: str | None = None) -> Dict[str, Any]:
     """Parse LLM JSON and mark claims that reference unknown evidence IDs."""
     if not raw_text:
@@ -98,6 +116,10 @@ def parse_and_validate_llm_summary(raw_text: str | None, analysis: Dict[str, Any
         "invalid_references": invalid_references,
         "deterministic_verdict": (analysis.get("impact_assessment") or {}).get("verdict"),
     }
+
+
+def needs_llm_retry(summary: Dict[str, Any]) -> bool:
+    return summary.get("status") in RETRYABLE_LLM_STATUSES
 
 
 def _extract_json(raw_text: str) -> str:

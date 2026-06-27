@@ -399,3 +399,37 @@ Possible compromise with C2 indicators
 ```
 
 作用：验证 FlowTragent 在没有 HTTP payload 的 PCAP 中，仍能基于 DNS 查询模式和 TCP 周期连接识别疑似 C2 行为，并生成 Markdown/JSON 报告。
+
+## 13. Ollama 结构化摘要联调
+
+启动 Ollama 并拉取轻量模型：
+
+```bash
+ollama serve
+ollama pull phi3:mini
+```
+
+另开一个 WSL 终端运行 smoke test：
+
+```bash
+conda activate flowtragent_py311
+cd /mnt/e/ctfcodes/FlowTragent
+python scripts/ollama_smoke_test.py --host http://127.0.0.1:11434 --model phi3:mini
+```
+
+如果 Ollama 未启动，脚本会输出：
+
+```text
+ollama_unavailable
+```
+
+如果 Ollama 可用，脚本会生成 demo PCAP、运行 FlowTragent，并输出：
+
+```text
+llm_status
+retry_attempted
+supported_claims
+unsupported_claims
+```
+
+作用：验证 LLM 只生成结构化摘要，并且所有 supported claim 都必须引用有效的 `evidence_id`。

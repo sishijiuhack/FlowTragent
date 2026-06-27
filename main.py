@@ -7,7 +7,12 @@ import json
 from pathlib import Path
 
 from src.agent.agent import TraceAgent
-from src.agent.llm_summary import build_structured_llm_prompt, parse_and_validate_llm_summary
+from src.agent.llm_summary import (
+    build_llm_repair_prompt,
+    build_structured_llm_prompt,
+    needs_llm_retry,
+    parse_and_validate_llm_summary,
+)
 from src.agent.orchestrator import run_agent_layer
 from src.correlation.attack_chain import detect_attack_stages
 from src.correlation.c2_detector import detect_c2
@@ -137,7 +142,14 @@ def _analyze(
         ollama = OllamaClient(config["ollama"]["host"], model)
         if ollama.is_available():
             raw_summary = ollama.generate(build_structured_llm_prompt(analysis), json_format=True)
-            analysis["llm_structured_summary"] = parse_and_validate_llm_summary(raw_summary, analysis, model=model)
+            structured_summary = parse_and_validate_llm_summary(raw_summary, analysis, model=model)
+            if needs_llm_retry(structured_summary):
+                repaired = ollama.generate(build_llm_repair_prompt(raw_summary, analysis), json_format=True)
+                structured_summary = parse_and_validate_llm_summary(repaired, analysis, model=model)
+                structured_summary["retry_attempted"] = True
+            else:
+                structured_summary["retry_attempted"] = False
+            analysis["llm_structured_summary"] = structured_summary
             analysis["llm_summary"] = analysis["llm_structured_summary"].get("summary") or None
         else:
             analysis["llm_structured_summary"] = {

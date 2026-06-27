@@ -169,10 +169,12 @@ llm_structured_summary
 - 无法解析为 JSON 的 LLM 输出会标记为 `status=invalid_json`。
 - Ollama 不可用时会标记为 `status=unavailable`，主流程仍生成 deterministic 报告。
 - `deterministic_verdict` 来自 `impact_assessment.verdict`，LLM 不能覆盖。
+- 如果首次输出为空或不是合法 JSON，系统会使用 repair prompt 自动重试一次，并记录 `retry_attempted=true`。
 
 验证命令：
 
 ```bash
 python tests/test_llm_summary.py
 python tests/test_ollama_unavailable_pipeline.py
+python scripts/ollama_smoke_test.py
 ```

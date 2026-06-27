@@ -7,7 +7,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.agent.llm_summary import build_structured_llm_prompt, parse_and_validate_llm_summary
+from src.agent.llm_summary import (
+    build_llm_repair_prompt,
+    build_structured_llm_prompt,
+    needs_llm_retry,
+    parse_and_validate_llm_summary,
+)
 
 
 def _analysis():
@@ -63,6 +68,10 @@ def main() -> None:
     invalid = parse_and_validate_llm_summary("not json", analysis)
     assert invalid["status"] == "invalid_json"
     assert invalid["unsupported_claims"]
+    assert needs_llm_retry(invalid)
+    repair_prompt = build_llm_repair_prompt("not json", analysis)
+    assert "pkt-1" in repair_prompt
+    assert "valid JSON only" in repair_prompt
 
 
 if __name__ == "__main__":
