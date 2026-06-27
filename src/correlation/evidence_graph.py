@@ -48,6 +48,7 @@ def build_evidence_graph(
         "edges": [asdict(edge) for edge in edges],
     }
     graph["mermaid"] = render_mermaid_graph(graph)
+    graph["dot"] = render_dot_graph(graph)
     return graph
 
 
@@ -71,6 +72,40 @@ def render_mermaid_graph(graph: dict[str, Any], max_edges: int = 40) -> str:
         lines.append(f"  {_mermaid_id(source_id)} -->|{relation}| {_mermaid_id(target_id)}")
     if len(lines) == 1:
         lines.append("  empty[No evidence graph edges]")
+    return "\n".join(lines)
+
+
+def render_dot_graph(graph: dict[str, Any], max_edges: int = 80) -> str:
+    """Render an evidence graph as Graphviz DOT."""
+    nodes = {str(node.get("node_id")): node for node in graph.get("nodes", []) if node.get("node_id")}
+    lines = [
+        "digraph FlowTragentEvidence {",
+        "  rankdir=LR;",
+        '  graph [fontname="Arial"];',
+        '  node [shape=box, style="rounded,filled", fillcolor="#f6f8fa", fontname="Arial"];',
+        '  edge [fontname="Arial"];',
+    ]
+    emitted_nodes = set()
+    for edge in graph.get("edges", [])[:max_edges]:
+        source_id = str(edge.get("source_id") or "")
+        target_id = str(edge.get("target_id") or "")
+        if not source_id or not target_id:
+            continue
+        for node_id in (source_id, target_id):
+            if node_id in emitted_nodes:
+                continue
+            node = nodes.get(node_id, {"node_id": node_id, "node_type": "External", "label": node_id})
+            lines.append(f'  "{_dot_escape(node_id)}" [label="{_dot_label(node)}"];')
+            emitted_nodes.add(node_id)
+        lines.append(
+            '  "{source}" -> "{target}" [label="{relation}", color="{color}"];'.format(
+                source=_dot_escape(source_id),
+                target=_dot_escape(target_id),
+                relation=_dot_escape(str(edge.get("relation") or "related")),
+                color=_edge_color(str(edge.get("confidence") or "")),
+            )
+        )
+    lines.append("}")
     return "\n".join(lines)
 
 
@@ -271,6 +306,25 @@ def _mermaid_label(node: dict[str, Any]) -> str:
 
 def _mermaid_text(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', "'").replace("|", "/").replace("\n", "\\n")
+
+
+def _dot_label(node: dict[str, Any]) -> str:
+    node_id = str(node.get("node_id") or "")
+    node_type = str(node.get("node_type") or "Evidence")
+    label = str(node.get("label") or node_id)[:90]
+    return _dot_escape(f"{node_id}\\n{node_type}\\n{label}")
+
+
+def _dot_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def _edge_color(confidence: str) -> str:
+    if confidence.lower() == "high":
+        return "#166534"
+    if confidence.lower() == "medium":
+        return "#a16207"
+    return "#64748b"
 
 
 def _endpoint(ip: str | None, port: int | None) -> str | None:

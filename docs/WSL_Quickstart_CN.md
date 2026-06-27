@@ -679,3 +679,53 @@ http://127.0.0.1:5000
 ```bash
 python tests/test_web_app.py
 ```
+
+## 18. Graphviz DOT / PNG 离线导出
+
+Evidence Graph 现在同时输出 Graphviz DOT：
+
+```text
+evidence_graph.dot
+```
+
+Markdown 报告中会包含：
+
+```graphviz
+digraph FlowTragentEvidence {
+  rankdir=LR;
+  "pkt-1" -> "endpoint1-1" [label="same_asset"];
+}
+```
+
+如果需要离线生成 PNG，可以安装 Graphviz：
+
+```bash
+sudo apt update
+sudo apt install -y graphviz
+```
+
+从 JSON 报告导出 DOT：
+
+```bash
+python scripts/export_graphviz.py reports/flowtragent_report_xxx.json
+```
+
+导出 DOT 和 PNG：
+
+```bash
+python scripts/export_graphviz.py \
+  reports/flowtragent_report_xxx.json \
+  --png-output reports/flowtragent_graph.png
+```
+
+如果没有安装 Graphviz，脚本会只写 DOT，并提示：
+
+```text
+sudo apt install graphviz
+```
+
+验证命令：
+
+```bash
+python tests/test_export_graphviz.py
+```

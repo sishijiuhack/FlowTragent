@@ -62,10 +62,14 @@ def main() -> None:
     mermaid = analysis["evidence_graph"]["mermaid"]
     assert mermaid.startswith("flowchart TD")
     assert "process_external_connection" in mermaid
+    dot = analysis["evidence_graph"]["dot"]
+    assert dot.startswith("digraph FlowTragentEvidence")
+    assert "process_external_connection" in dot
     report = report_path.read_text(encoding="utf-8")
     assert "endpoint1-1" in report
     assert "## Evidence Graph" in report
     assert "```mermaid" in report
+    assert "```graphviz" in report
     assert "Likely successful exploitation" in report
 
 
