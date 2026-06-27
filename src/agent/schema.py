@@ -46,6 +46,7 @@ class AgentReport:
     next_actions: List[str]
     schema_version: str = AGENT_SCHEMA_VERSION
     mode: str = "deterministic"
+    orchestration: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)

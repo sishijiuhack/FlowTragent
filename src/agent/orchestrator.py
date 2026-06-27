@@ -5,18 +5,37 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Dict, List
 
+from src.agent.langgraph_runner import run_agent_graph
 from src.agent.schema import AgentEvidence, AgentFinding, AgentReport
 
 
 def run_agent_layer(analysis: Dict[str, Any]) -> Dict[str, Any]:
     """Run deterministic agents over already-correlated evidence."""
+    agents = [
+        InvestigatorAgent(),
+        VulnerabilityJudgeAgent(),
+        TimelineAgent(),
+        ImpactAgent(),
+    ]
+    state = run_agent_graph(analysis, agents)
+    findings = state.get("findings", [])
+    return ReporterAgent().run(analysis, findings, state.get("orchestration", {})).to_dict()
+
+
+def run_agent_layer_sequential(analysis: Dict[str, Any]) -> Dict[str, Any]:
+    """Run deterministic agents without LangGraph. Useful for debugging."""
     findings = [
         InvestigatorAgent().run(analysis),
         VulnerabilityJudgeAgent().run(analysis),
         TimelineAgent().run(analysis),
         ImpactAgent().run(analysis),
     ]
-    return ReporterAgent().run(analysis, findings).to_dict()
+    orchestration = {
+        "engine": "sequential",
+        "nodes": ["Investigator Agent", "Vulnerability Judge Agent", "Timeline Agent", "Impact Agent"],
+        "fallback_reason": None,
+    }
+    return ReporterAgent().run(analysis, findings, orchestration).to_dict()
 
 
 class InvestigatorAgent:
@@ -160,7 +179,12 @@ class ImpactAgent:
 class ReporterAgent:
     name = "Reporter Agent"
 
-    def run(self, analysis: Dict[str, Any], findings: List[AgentFinding]) -> AgentReport:
+    def run(
+        self,
+        analysis: Dict[str, Any],
+        findings: List[AgentFinding],
+        orchestration: Dict[str, Any] | None = None,
+    ) -> AgentReport:
         impact = analysis.get("impact_assessment") or {}
         top_cve = (analysis.get("top_cves") or [{}])[0]
         c2_findings = analysis.get("c2_findings", [])
@@ -189,6 +213,7 @@ class ReporterAgent:
             confidence_summary=confidence_summary,
             limitations=limitations,
             next_actions=next_actions,
+            orchestration=orchestration or {},
         )
 
 

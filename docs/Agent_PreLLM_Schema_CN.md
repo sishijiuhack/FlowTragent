@@ -28,7 +28,12 @@ source_summary
   "evidence_pack": [],
   "confidence_summary": {},
   "limitations": [],
-  "next_actions": []
+  "next_actions": [],
+  "orchestration": {
+    "engine": "langgraph",
+    "nodes": ["Investigator Agent", "Vulnerability Judge Agent", "Timeline Agent", "Impact Agent"],
+    "fallback_reason": null
+  }
 }
 ```
 
@@ -43,6 +48,7 @@ source_summary
 - `confidence_summary`：Agent 判断置信度统计。
 - `limitations`：证据缺口。
 - `next_actions`：处置建议。
+- `orchestration`：Agent 编排元数据，记录实际使用 `langgraph` 还是 `sequential` fallback。
 
 ## 2. agent_reasoning 条目
 
@@ -94,17 +100,38 @@ source_summary
 4. 如果 LLM 产生了无法映射到 `evidence_id` 的结论，应标记为 `unsupported_by_evidence`。
 5. Markdown 报告中的最终影响判断仍以 `impact_assessment` 和 deterministic Agent 输出为准。
 
-## 5. 当前验证命令
+## 5. LangGraph 编排
+
+当前 Agent 层已支持 LangGraph 编排，但节点仍是 deterministic Agent：
+
+```text
+Investigator Agent
+-> Vulnerability Judge Agent
+-> Timeline Agent
+-> Impact Agent
+-> Reporter Agent
+```
+
+如果 LangGraph 不可用或 API 行为变化，系统会降级到 sequential runner，并在：
+
+```text
+agent_findings.orchestration.fallback_reason
+```
+
+中记录原因。
+
+## 6. 当前验证命令
 
 ```bash
 python tests/test_agent_orchestrator.py
+python tests/test_langgraph_runner.py
 python tests/test_trace_agent_cve_evidence.py
 python tests/test_pipeline.py
 python tests/test_dns_tcp_c2_pipeline.py
 python tests/test_post_exploit_and_c2_pipeline.py
 ```
 
-## 6. LLM 结构化摘要接入约束
+## 7. LLM 结构化摘要接入约束
 
 当前 LLM 接入只允许生成结构化摘要，不允许覆盖 deterministic 判断。
 

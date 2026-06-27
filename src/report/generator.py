@@ -31,6 +31,13 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
         lines.extend(["", "## Agent Metadata"])
         lines.append(f"- Schema: `{agent_findings.get('schema_version', 'unknown')}`")
         lines.append(f"- Mode: `{agent_findings.get('mode', 'unknown')}`")
+        orchestration = agent_findings.get("orchestration") or {}
+        if orchestration:
+            lines.append(f"- Orchestration: `{orchestration.get('engine', 'unknown')}`")
+            if orchestration.get("nodes"):
+                lines.append(f"- Agent Nodes: {', '.join(orchestration.get('nodes', []))}")
+            if orchestration.get("fallback_reason"):
+                lines.append(f"- Orchestration Fallback: {orchestration.get('fallback_reason')}")
         confidence_summary = agent_findings.get("confidence_summary") or {}
         if confidence_summary:
             lines.append(f"- Confidence Summary: {_format_pairs(sorted(confidence_summary.items()))}")

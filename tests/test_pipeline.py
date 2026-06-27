@@ -33,6 +33,7 @@ def main() -> None:
     assert "## Agent Metadata" in report
     assert "Schema: `agent-v1`" in report
     assert "Mode: `deterministic`" in report
+    assert "Orchestration:" in report
     assert "## Executive Summary" in report
     assert "## CVE Evidence" in report
     assert "## Agent Evidence Pack" in report
