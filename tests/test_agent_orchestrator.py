@@ -63,9 +63,14 @@ def main() -> None:
     }
 
     result = run_agent_layer(analysis)
+    assert result["schema_version"] == "agent-v1"
+    assert result["mode"] == "deterministic"
     assert "Possible successful exploitation with C2 indicators" in result["executive_summary"]
     assert "CVE-2021-44228" in result["executive_summary"]
     assert any("C2 indicators" in item for item in result["key_findings"])
+    assert result["confidence_summary"]["high"] >= 1
+    assert any(item["evidence_id"] == "pkt-1" and "demo-log4shell" in item["related"] for item in result["evidence_pack"])
+    assert any(item["evidence_id"] == "pkt-2" and "DNS C2 / Tunneling" in item["related"] for item in result["evidence_pack"])
     assert len(result["agent_reasoning"]) == 4
     vuln_reasoning = [item for item in result["agent_reasoning"] if item["agent"] == "Vulnerability Judge Agent"][0]
     assert "pkt-1" in vuln_reasoning["evidence_ids"]

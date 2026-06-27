@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Dict, List
 
+from src.agent.schema import AgentEvidence, AgentFinding, AgentReport
+
 
 def run_agent_layer(analysis: Dict[str, Any]) -> Dict[str, Any]:
     """Run deterministic agents over already-correlated evidence."""
@@ -14,13 +16,13 @@ def run_agent_layer(analysis: Dict[str, Any]) -> Dict[str, Any]:
         TimelineAgent().run(analysis),
         ImpactAgent().run(analysis),
     ]
-    return ReporterAgent().run(analysis, findings)
+    return ReporterAgent().run(analysis, findings).to_dict()
 
 
 class InvestigatorAgent:
     name = "Investigator Agent"
 
-    def run(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, analysis: Dict[str, Any]) -> AgentFinding:
         events = analysis.get("structured_events", [])
         protocols = Counter(str(event.get("protocol", "UNKNOWN")) for event in events)
         evidence_ids = _collect_evidence_ids(analysis)
@@ -39,13 +41,14 @@ class InvestigatorAgent:
             "high",
             evidence_ids[:12],
             "Evidence was derived from parsed PCAP events and correlated finding evidence IDs.",
+            {"protocols": dict(sorted(protocols.items())), "event_count": len(events)},
         )
 
 
 class VulnerabilityJudgeAgent:
     name = "Vulnerability Judge Agent"
 
-    def run(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, analysis: Dict[str, Any]) -> AgentFinding:
         candidates = analysis.get("top_cves", [])
         if not candidates:
             return _finding(
@@ -75,13 +78,21 @@ class VulnerabilityJudgeAgent:
             confidence,
             evidence_ids,
             f"Candidate ranking is based on NOVA-F retrieval plus rule evidence; {'; '.join(evidence_bits)}.",
+            {
+                "top_cve": top.get("cve"),
+                "score": score,
+                "event_ids": evidence_ids,
+                "neighbor_ids": neighbor_ids,
+                "label_votes": label_votes,
+                "signals": top.get("signals", []),
+            },
         )
 
 
 class TimelineAgent:
     name = "Timeline Agent"
 
-    def run(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, analysis: Dict[str, Any]) -> AgentFinding:
         timeline = analysis.get("attack_timeline", [])
         chain = analysis.get("attack_chain", [])
         c2_findings = analysis.get("c2_findings", [])
@@ -109,13 +120,20 @@ class TimelineAgent:
             "high" if len(timeline) >= 2 else "medium",
             [str(item.get("event_id")) for item in timeline[:12] if item.get("event_id")],
             summary_tail,
+            {
+                "event_count": len(timeline),
+                "first_seen": first.get("timestamp"),
+                "last_seen": last.get("timestamp"),
+                "attack_stages": stages,
+                "c2_types": c2_types,
+            },
         )
 
 
 class ImpactAgent:
     name = "Impact Agent"
 
-    def run(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, analysis: Dict[str, Any]) -> AgentFinding:
         impact = analysis.get("impact_assessment") or {}
         if not impact:
             return _finding(
@@ -131,13 +149,18 @@ class ImpactAgent:
             impact.get("confidence") or "low",
             impact.get("evidence_ids", []),
             impact.get("reasoning") or "Impact was inferred from correlated exploit, post-exploitation, and C2 evidence.",
+            {
+                "verdict": impact.get("verdict"),
+                "related_cves": impact.get("related_cves", []),
+                "missing_evidence": impact.get("missing_evidence", []),
+            },
         )
 
 
 class ReporterAgent:
     name = "Reporter Agent"
 
-    def run(self, analysis: Dict[str, Any], findings: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def run(self, analysis: Dict[str, Any], findings: List[AgentFinding]) -> AgentReport:
         impact = analysis.get("impact_assessment") or {}
         top_cve = (analysis.get("top_cves") or [{}])[0]
         c2_findings = analysis.get("c2_findings", [])
@@ -153,14 +176,20 @@ class ReporterAgent:
         if not summary_parts:
             summary_parts.append("No decisive attack conclusion is available from the current evidence.")
 
-        key_findings = [item["finding"] for item in findings if item.get("finding")]
+        key_findings = [item.finding for item in findings if item.finding]
+        evidence_pack = _build_evidence_pack(analysis)
+        confidence_summary = dict(Counter(item.confidence for item in findings if item.confidence))
+        limitations = _limitations(analysis, impact)
         next_actions = _next_actions(analysis, chain, c2_findings, impact)
-        return {
-            "executive_summary": " ".join(summary_parts),
-            "key_findings": key_findings,
-            "agent_reasoning": findings,
-            "next_actions": next_actions,
-        }
+        return AgentReport(
+            executive_summary=" ".join(summary_parts),
+            key_findings=key_findings,
+            agent_reasoning=findings,
+            evidence_pack=evidence_pack,
+            confidence_summary=confidence_summary,
+            limitations=limitations,
+            next_actions=next_actions,
+        )
 
 
 def _collect_evidence_ids(analysis: Dict[str, Any]) -> List[str]:
@@ -172,6 +201,75 @@ def _collect_evidence_ids(analysis: Dict[str, Any]) -> List[str]:
     impact = analysis.get("impact_assessment") or {}
     evidence.update(impact.get("evidence_ids", []))
     return sorted(str(item) for item in evidence if item)
+
+
+def _build_evidence_pack(analysis: Dict[str, Any]) -> List[AgentEvidence]:
+    pack: Dict[str, AgentEvidence] = {}
+    for event in analysis.get("structured_events", []):
+        event_id = str(event.get("event_id") or "")
+        if not event_id:
+            continue
+        pack[event_id] = AgentEvidence(
+            evidence_id=event_id,
+            evidence_type=str(event.get("protocol") or "NetworkEvent"),
+            summary=str(event.get("summary") or event.get("payload_clean") or "")[:220],
+            source=_format_endpoint(event.get("src_ip"), event.get("src_port")),
+            target=_format_endpoint(event.get("dst_ip"), event.get("dst_port")),
+        )
+
+    for cve in analysis.get("top_cves", []):
+        for detail in cve.get("evidence_details", []) or []:
+            event_id = str(detail.get("event_id") or "")
+            if not event_id:
+                continue
+            evidence = pack.setdefault(
+                event_id,
+                AgentEvidence(
+                    evidence_id=event_id,
+                    evidence_type="CVE Evidence",
+                    summary=str(detail.get("neighbor_payload") or "")[:220],
+                ),
+            )
+            related = [
+                str(cve.get("cve")),
+                str(detail.get("neighbor_id")) if detail.get("neighbor_id") else "",
+            ]
+            evidence.related.extend(item for item in related if item and item not in evidence.related)
+
+    for stage in analysis.get("attack_chain", []):
+        for event_id in stage.get("evidence_ids", []) or []:
+            evidence = pack.get(str(event_id))
+            if evidence and stage.get("stage") not in evidence.related:
+                evidence.related.append(str(stage.get("stage")))
+
+    for finding in analysis.get("c2_findings", []):
+        for event_id in finding.get("evidence_ids", []) or []:
+            evidence = pack.get(str(event_id))
+            if evidence and finding.get("c2_type") not in evidence.related:
+                evidence.related.append(str(finding.get("c2_type")))
+
+    return [pack[key] for key in sorted(pack)]
+
+
+def _limitations(analysis: Dict[str, Any], impact: Dict[str, Any]) -> List[str]:
+    limitations = list(impact.get("missing_evidence", []) or [])
+    if not analysis.get("top_cves"):
+        limitations.append("No CVE retrieval evidence is available for this input.")
+    if not analysis.get("attack_timeline"):
+        limitations.append("No timestamped attack timeline is available.")
+    if not analysis.get("structured_events"):
+        limitations.append("No structured packet evidence is available.")
+    deduped = []
+    for item in limitations:
+        if item and item not in deduped:
+            deduped.append(item)
+    return deduped
+
+
+def _format_endpoint(ip: Any, port: Any) -> str | None:
+    if not ip:
+        return None
+    return f"{ip}:{port}" if port is not None else str(ip)
 
 
 def _next_actions(
@@ -197,11 +295,19 @@ def _next_actions(
     return actions
 
 
-def _finding(agent: str, finding: str, confidence: str, evidence_ids: List[str], reasoning: str) -> Dict[str, Any]:
-    return {
-        "agent": agent,
-        "finding": finding,
-        "confidence": confidence,
-        "evidence_ids": [item for item in evidence_ids if item],
-        "reasoning": reasoning,
-    }
+def _finding(
+    agent: str,
+    finding: str,
+    confidence: str,
+    evidence_ids: List[str],
+    reasoning: str,
+    data: Dict[str, Any] | None = None,
+) -> AgentFinding:
+    return AgentFinding(
+        agent=agent,
+        finding=finding,
+        confidence=confidence,
+        evidence_ids=[item for item in evidence_ids if item],
+        reasoning=reasoning,
+        data=data or {},
+    )

@@ -28,6 +28,13 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
 
     agent_findings = analysis.get("agent_findings") or {}
     if agent_findings:
+        lines.extend(["", "## Agent Metadata"])
+        lines.append(f"- Schema: `{agent_findings.get('schema_version', 'unknown')}`")
+        lines.append(f"- Mode: `{agent_findings.get('mode', 'unknown')}`")
+        confidence_summary = agent_findings.get("confidence_summary") or {}
+        if confidence_summary:
+            lines.append(f"- Confidence Summary: {_format_pairs(sorted(confidence_summary.items()))}")
+
         lines.extend(["", "## Executive Summary"])
         lines.append(agent_findings.get("executive_summary") or "No executive summary available.")
 
@@ -171,6 +178,22 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
 
     if agent_findings:
         reasoning = agent_findings.get("agent_reasoning") or []
+        evidence_pack = agent_findings.get("evidence_pack") or []
+        if evidence_pack:
+            lines.extend(["", "## Agent Evidence Pack"])
+            lines.extend(["| Evidence | Type | Source | Target | Related | Summary |", "| --- | --- | --- | --- | --- | --- |"])
+            for item in evidence_pack[:20]:
+                lines.append(
+                    "| {evidence_id} | {evidence_type} | {source} | {target} | {related} | `{summary}` |".format(
+                        evidence_id=item.get("evidence_id", ""),
+                        evidence_type=item.get("evidence_type", ""),
+                        source=item.get("source") or "",
+                        target=item.get("target") or "",
+                        related=_escape_table(", ".join(item.get("related", []))),
+                        summary=_escape_table(str(item.get("summary") or "")[:140]),
+                    )
+                )
+
         if reasoning:
             lines.extend(["", "## Agent Reasoning"])
             lines.extend(["| Agent | Confidence | Evidence | Reasoning |", "| --- | --- | --- | --- |"])
@@ -187,6 +210,11 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
         if next_actions:
             lines.extend(["", "## Next Actions"])
             for item in next_actions:
+                lines.append(f"- {item}")
+        limitations = agent_findings.get("limitations") or []
+        if limitations:
+            lines.extend(["", "## Evidence Gaps"])
+            for item in limitations:
                 lines.append(f"- {item}")
 
     rag_context = analysis.get("rag_context", [])

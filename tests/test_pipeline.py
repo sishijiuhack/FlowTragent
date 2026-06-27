@@ -30,10 +30,15 @@ def main() -> None:
     assert "report" in result.stdout
     report_path = PROJECT_ROOT / json.loads(result.stdout)["report"]
     report = report_path.read_text(encoding="utf-8")
+    assert "## Agent Metadata" in report
+    assert "Schema: `agent-v1`" in report
+    assert "Mode: `deterministic`" in report
     assert "## Executive Summary" in report
     assert "## CVE Evidence" in report
+    assert "## Agent Evidence Pack" in report
     assert "## Agent Reasoning" in report
     assert "## Next Actions" in report
+    assert "## Evidence Gaps" in report
     assert "pkt-1" in report
     assert "## Impact Assessment" in report
     assert "Likely exploitation attempt with successful HTTP response" in report
