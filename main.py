@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from src.agent.agent import TraceAgent
+from src.agent.orchestrator import run_agent_layer
 from src.correlation.attack_chain import detect_attack_stages
 from src.correlation.c2_detector import detect_c2
 from src.correlation.impact_analyzer import assess_impact
@@ -137,6 +138,7 @@ def _analyze(
         analysis["c2_findings"] = c2_findings
         analysis["source_summary"] = summarize_sources(evidence_events)
         analysis["impact_assessment"] = assess_impact(http_events, attack_chain, c2_findings, candidates)
+    analysis["agent_findings"] = run_agent_layer(analysis)
     return analysis
 
 

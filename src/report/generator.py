@@ -26,6 +26,17 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
     for attack_type in analysis.get("attack_types", []):
         lines.append(f"- {attack_type}")
 
+    agent_findings = analysis.get("agent_findings") or {}
+    if agent_findings:
+        lines.extend(["", "## Executive Summary"])
+        lines.append(agent_findings.get("executive_summary") or "No executive summary available.")
+
+        key_findings = agent_findings.get("key_findings") or []
+        if key_findings:
+            lines.extend(["", "## Key Findings"])
+            for item in key_findings:
+                lines.append(f"- {item}")
+
     if analysis.get("llm_summary"):
         lines.extend(["", "## Agent Summary", analysis["llm_summary"]])
 
@@ -136,6 +147,26 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
             lines.append("- Missing evidence:")
             for item in impact.get("missing_evidence", []):
                 lines.append(f"  - {item}")
+
+    if agent_findings:
+        reasoning = agent_findings.get("agent_reasoning") or []
+        if reasoning:
+            lines.extend(["", "## Agent Reasoning"])
+            lines.extend(["| Agent | Confidence | Evidence | Reasoning |", "| --- | --- | --- | --- |"])
+            for item in reasoning:
+                lines.append(
+                    "| {agent} | {confidence} | {evidence} | {reasoning} |".format(
+                        agent=item.get("agent", ""),
+                        confidence=item.get("confidence", ""),
+                        evidence=", ".join(item.get("evidence_ids", [])),
+                        reasoning=_escape_table(item.get("reasoning", "")),
+                    )
+                )
+        next_actions = agent_findings.get("next_actions") or []
+        if next_actions:
+            lines.extend(["", "## Next Actions"])
+            for item in next_actions:
+                lines.append(f"- {item}")
 
     rag_context = analysis.get("rag_context", [])
     if rag_context:

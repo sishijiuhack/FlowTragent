@@ -30,6 +30,9 @@ def main() -> None:
     assert "report" in result.stdout
     report_path = PROJECT_ROOT / json.loads(result.stdout)["report"]
     report = report_path.read_text(encoding="utf-8")
+    assert "## Executive Summary" in report
+    assert "## Agent Reasoning" in report
+    assert "## Next Actions" in report
     assert "## Impact Assessment" in report
     assert "Likely exploitation attempt with successful HTTP response" in report
     assert "| pkt-1 |" in report
