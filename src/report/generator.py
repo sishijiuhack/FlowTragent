@@ -183,6 +183,22 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
                 )
             )
 
+    attack_mapping = analysis.get("attack_mapping", [])
+    if attack_mapping:
+        lines.extend(["", "## ATT&CK Mapping"])
+        lines.extend(["| Technique | Tactic | Confidence | Evidence | Reason |", "| --- | --- | --- | --- | --- |"])
+        for item in attack_mapping:
+            technique = f"{item.get('technique_id')} {item.get('technique_name')}"
+            lines.append(
+                "| {technique} | {tactic} | {confidence} | {evidence} | {reason} |".format(
+                    technique=_escape_table(technique),
+                    tactic=_escape_table(item.get("tactic", "")),
+                    confidence=item.get("confidence", ""),
+                    evidence=", ".join(item.get("evidence_ids", [])),
+                    reason=_escape_table(str(item.get("reason") or "")[:160]),
+                )
+            )
+
     c2_findings = analysis.get("c2_findings", [])
     if c2_findings:
         lines.extend(["", "## C2 Analysis"])

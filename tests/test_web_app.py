@@ -72,6 +72,19 @@ def main() -> None:
     assert svg.mimetype in {"image/svg+xml", "text/plain"}
     assert "FlowTragentEvidence" in svg.get_data(as_text=True) or "<svg" in svg.get_data(as_text=True)
 
+    search = client.get("/?q=webtest")
+    assert search.status_code == 200
+    assert md_name in search.get_data(as_text=True)
+
+    archive = client.get("/export-reports.zip")
+    assert archive.status_code == 200
+    assert archive.mimetype == "application/zip"
+
+    delete = client.post(f"/delete-report/{md_name}", follow_redirects=True)
+    assert delete.status_code == 200
+    assert not md_path.exists()
+    assert not json_path.exists()
+
 
 if __name__ == "__main__":
     main()

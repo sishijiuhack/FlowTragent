@@ -6,9 +6,10 @@ import json
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 
-from flask import Flask, Response, redirect, render_template_string, request, send_from_directory, url_for
+from flask import Flask, Response, redirect, render_template_string, request, send_file, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 
 from main import run_payload, run_pcap
@@ -106,6 +107,11 @@ PAGE = """
 
   <section>
     <h2>最近报告</h2>
+    <form method="get" action="/" style="margin-bottom: 12px;">
+      <input name="q" value="{{ q or '' }}" placeholder="按文件名搜索报告">
+      <button type="submit">搜索</button>
+      <a href="{{ url_for('export_reports_zip') }}">批量导出 ZIP</a>
+    </form>
     {% if reports %}
     <ul class="report-list">
       {% for item in reports %}
@@ -117,6 +123,10 @@ PAGE = """
           <a href="{{ url_for('download_report', filename=item.name) }}">Markdown</a>
           |
           <a href="{{ url_for('download_report', filename=item.with_suffix('.json').name) }}">JSON</a>
+          |
+          <form method="post" action="{{ url_for('delete_report', filename=item.name) }}" style="display:inline;" onsubmit="return confirm('确认删除该报告的 Markdown/JSON/DOT/PNG 文件？');">
+            <button type="submit" style="padding:3px 6px; background:#b91c1c; border-color:#b91c1c;">删除</button>
+          </form>
         </span>
       </li>
       {% endfor %}
@@ -233,7 +243,8 @@ REPORT_PAGE = """
 
 @app.get("/")
 def index():
-    return render_template_string(PAGE, report=None, reports=_recent_reports())
+    q = request.args.get("q", "").strip()
+    return render_template_string(PAGE, report=None, reports=_recent_reports(query=q), q=q)
 
 
 @app.post("/analyze-payload")
@@ -250,7 +261,7 @@ def analyze_payload():
         _checked("enable_rag"),
         _checked("enable_ollama"),
     )
-    return render_template_string(PAGE, report=report, reports=_recent_reports())
+    return render_template_string(PAGE, report=report, reports=_recent_reports(), q="")
 
 
 @app.post("/analyze-pcap")
@@ -276,7 +287,7 @@ def analyze_pcap():
         dns_logs=uploaded_logs["dns_log"],
         endpoint_logs=uploaded_logs["endpoint_log"],
     )
-    return render_template_string(PAGE, report=report, reports=_recent_reports())
+    return render_template_string(PAGE, report=report, reports=_recent_reports(), q="")
 
 
 @app.get("/view-report/<path:filename>")
@@ -304,6 +315,30 @@ def download_report(filename: str):
     return send_from_directory(CONFIG["paths"]["report_dir"], secure_filename(filename), as_attachment=False)
 
 
+@app.post("/delete-report/<path:filename>")
+def delete_report(filename: str):
+    safe_name = secure_filename(filename)
+    report_dir = Path(CONFIG["paths"]["report_dir"])
+    stem = Path(safe_name).stem
+    for suffix in (".md", ".json", ".dot", ".png", ".svg"):
+        target = report_dir / f"{stem}{suffix}"
+        if target.exists() and target.resolve().parent == report_dir.resolve():
+            target.unlink()
+    return redirect(url_for("index"))
+
+
+@app.get("/export-reports.zip")
+def export_reports_zip():
+    report_dir = Path(CONFIG["paths"]["report_dir"])
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    tmp.close()
+    with zipfile.ZipFile(tmp.name, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(report_dir.glob("flowtragent_report_*.*")):
+            if path.suffix.lower() in {".md", ".json", ".dot", ".png", ".svg"}:
+                archive.write(path, arcname=path.name)
+    return send_file(tmp.name, mimetype="application/zip", as_attachment=True, download_name="flowtragent_reports.zip")
+
+
 @app.get("/graph-svg/<path:filename>")
 def graph_svg(filename: str):
     safe_name = secure_filename(filename)
@@ -329,11 +364,14 @@ def _checked(name: str) -> bool:
     return request.form.get(name) == "on"
 
 
-def _recent_reports(limit: int = 12) -> list[Path]:
+def _recent_reports(limit: int = 12, query: str = "") -> list[Path]:
     report_dir = Path(CONFIG["paths"]["report_dir"])
     if not report_dir.exists():
         return []
-    return sorted(report_dir.glob("*.md"), key=lambda path: path.stat().st_mtime, reverse=True)[:limit]
+    reports = sorted(report_dir.glob("*.md"), key=lambda path: path.stat().st_mtime, reverse=True)
+    if query:
+        reports = [path for path in reports if query.lower() in path.name.lower()]
+    return reports[:limit]
 
 
 def _save_optional_logs() -> dict[str, list[str]]:

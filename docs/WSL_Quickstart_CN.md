@@ -827,3 +827,79 @@ python tests/test_export_graphviz.py
 python tests/test_pipeline.py
 python -m pip check
 ```
+
+## 20. 产品化增强：ATT&CK、NVD、评估、Web 管理、生产启动
+
+### 20.1 ATT&CK 映射
+
+报告新增：
+
+```text
+## ATT&CK Mapping
+```
+
+当前映射示例：
+
+- Exploitation -> T1190 Exploit Public-Facing Application
+- Command Execution -> T1059 Command and Scripting Interpreter
+- Payload Delivery -> T1105 Ingress Tool Transfer
+- WebShell / Backdoor -> T1505.003 Web Shell
+- DNS C2 / Tunneling -> T1071.004 DNS
+
+### 20.2 NVD 同步
+
+在线同步：
+
+```bash
+python scripts/sync_nvd.py --keyword apache --output data/rag/nvd_cves.jsonl
+```
+
+离线转换 NVD API JSON fixture：
+
+```bash
+python scripts/sync_nvd.py --input-json data/nvd_fixture.json --output data/rag/nvd_cves.jsonl
+```
+
+### 20.3 DataCon 索引评估
+
+```bash
+python scripts/evaluate_datacon_index.py \
+  --input data/csv/datacon_train_labeled.csv \
+  --index-dir data/index \
+  --model libs/nova-f/models/all-MiniLM-L6-v2 \
+  --top-k 5 \
+  --limit 200
+```
+
+输出：
+
+```text
+samples
+top1_accuracy
+topk_recall
+misses
+```
+
+### 20.4 Web UI 报告管理
+
+Web UI 现在支持：
+
+- 按文件名搜索报告。
+- 删除单个报告及同名 JSON/DOT/PNG/SVG。
+- 批量导出 ZIP：`/export-reports.zip`。
+
+### 20.5 生产启动
+
+新增：
+
+```text
+scripts/run_web_prod.sh
+docs/Production_Deploy_CN.md
+```
+
+推荐：
+
+```bash
+python -m pip install gunicorn
+FLOWTRAGENT_HOST=127.0.0.1 FLOWTRAGENT_PORT=5000 scripts/run_web_prod.sh
+```
