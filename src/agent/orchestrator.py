@@ -115,6 +115,7 @@ class TimelineAgent:
         timeline = analysis.get("attack_timeline", [])
         chain = analysis.get("attack_chain", [])
         c2_findings = analysis.get("c2_findings", [])
+        evidence_paths = (analysis.get("evidence_graph") or {}).get("paths", [])
         if not timeline:
             return _finding(
                 self.name,
@@ -132,6 +133,8 @@ class TimelineAgent:
             parts.append(f"attack stages: {', '.join(stages)}")
         if c2_types:
             parts.append(f"C2 indicators: {', '.join(c2_types)}")
+        if evidence_paths:
+            parts.append(f"key evidence paths: {evidence_paths[0].get('summary')}")
         summary_tail = "; ".join(parts) if parts else "no explicit attack stage or C2 finding"
         return _finding(
             self.name,
@@ -145,6 +148,7 @@ class TimelineAgent:
                 "last_seen": last.get("timestamp"),
                 "attack_stages": stages,
                 "c2_types": c2_types,
+                "evidence_paths": evidence_paths[:5],
             },
         )
 
@@ -189,6 +193,7 @@ class ReporterAgent:
         top_cve = (analysis.get("top_cves") or [{}])[0]
         c2_findings = analysis.get("c2_findings", [])
         chain = analysis.get("attack_chain", [])
+        evidence_paths = (analysis.get("evidence_graph") or {}).get("paths", [])
 
         summary_parts = []
         if impact.get("verdict"):
@@ -197,10 +202,13 @@ class ReporterAgent:
             summary_parts.append(f"Primary CVE candidate: {top_cve.get('cve')}.")
         if c2_findings:
             summary_parts.append(f"C2 indicators detected: {', '.join(sorted({item.get('c2_type') for item in c2_findings if item.get('c2_type')}))}.")
+        if evidence_paths:
+            summary_parts.append(f"Key evidence path: {evidence_paths[0].get('summary')}.")
         if not summary_parts:
             summary_parts.append("No decisive attack conclusion is available from the current evidence.")
 
         key_findings = [item.finding for item in findings if item.finding]
+        key_findings.extend(f"Evidence path: {item.get('summary')}" for item in evidence_paths[:3] if item.get("summary"))
         evidence_pack = _build_evidence_pack(analysis)
         confidence_summary = dict(Counter(item.confidence for item in findings if item.confidence))
         limitations = _limitations(analysis, impact)
@@ -312,6 +320,8 @@ def _next_actions(
         actions.append(f"Investigate and temporarily block suspected C2 destination(s): {', '.join(destinations)}.")
     if any(stage.get("stage") in {"Command Execution", "Payload Delivery", "WebShell / Backdoor"} for stage in chain):
         actions.append("Collect host triage artifacts from affected assets, including process list, network sockets, web root diff, persistence entries, and recent file writes.")
+    if (analysis.get("evidence_graph") or {}).get("paths"):
+        actions.append("Review the reported evidence graph paths to confirm the sequence from entry traffic to host activity and outbound communication.")
     top_cve = (analysis.get("top_cves") or [{}])[0]
     if top_cve.get("cve"):
         actions.append(f"Validate service exposure and patch status for {top_cve.get('cve')}.")

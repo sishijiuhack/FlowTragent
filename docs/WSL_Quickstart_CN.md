@@ -729,3 +729,101 @@ sudo apt install graphviz
 ```bash
 python tests/test_export_graphviz.py
 ```
+
+## 19. 证据路径、日志适配、离线图谱与中文报告增强
+
+本阶段完成 5 项增强：
+
+### 19.1 Agent 引用 evidence_graph 路径
+
+`evidence_graph` 现在新增：
+
+```text
+evidence_graph.paths
+```
+
+示例：
+
+```text
+pkt-1 --same_asset--> endpoint1-1 --process_external_connection--> external:203.0.113.50:8080
+```
+
+Agent 会在 `key_findings` 和 reasoning 中引用关键证据路径，用于解释“入口流量 -> 主机执行 -> 外联”的链路。
+
+### 19.2 Web UI 离线图谱渲染
+
+Web UI 不再只依赖 Mermaid CDN。报告详情页会调用：
+
+```text
+/graph-svg/<report.json>
+```
+
+如果系统安装了 Graphviz `dot`，页面会直接渲染本地 SVG；如果未安装，则显示 DOT 源码。
+
+安装 Graphviz：
+
+```bash
+sudo apt update
+sudo apt install -y graphviz
+```
+
+### 19.3 真实日志格式适配
+
+日志 parser 增强支持：
+
+- Nginx / Apache access log
+- JSONL / CSV access log
+- Zeek TSV DNS log（`#fields ts id.orig_h id.resp_h query qtype_name`）
+- Suricata EVE JSON DNS / HTTP 字段
+- Sysmon JSON 常见字段：`EventData.CommandLine`、`DestinationIp`、`DestinationPort`、`Image`
+
+验证：
+
+```bash
+python tests/test_log_parser.py
+```
+
+### 19.4 Endpoint 外联与 C2 关联增强
+
+`c2_detector.py` 新增：
+
+```text
+Endpoint External Connection
+```
+
+当 endpoint/process 日志出现 `curl/wget/powershell/certutil/bash -c/nc` 等外联命令，且存在远端 IP/端口时，会生成 C2 线索。
+
+如果该外联目的也出现在网络证据中，置信度提升。
+
+### 19.5 中文报告摘要
+
+Markdown 报告新增：
+
+```text
+## 中文摘要
+```
+
+包含：
+
+- 研判结论
+- 置信度
+- 研判依据
+- 首要 CVE 候选
+- 关键证据路径
+
+示例结论：
+
+```text
+疑似成功利用并伴随 C2 通信迹象
+```
+
+### 19.6 当前推荐验证命令
+
+```bash
+python tests/test_log_parser.py
+python tests/test_multisource_pipeline.py
+python tests/test_web_app.py
+python tests/test_export_graphviz.py
+python tests/test_pipeline.py
+python -m pip check
+```

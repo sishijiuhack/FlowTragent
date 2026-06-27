@@ -47,9 +47,72 @@ def build_evidence_graph(
         "nodes": [asdict(node) for node in nodes],
         "edges": [asdict(edge) for edge in edges],
     }
+    graph["paths"] = extract_key_paths(graph)
     graph["mermaid"] = render_mermaid_graph(graph)
     graph["dot"] = render_dot_graph(graph)
     return graph
+
+
+def extract_key_paths(graph: dict[str, Any], max_paths: int = 12) -> list[dict[str, Any]]:
+    """Extract compact evidence paths useful for agent reasoning."""
+    edges = graph.get("edges", [])
+    adjacency: dict[str, list[dict[str, Any]]] = {}
+    for edge in edges:
+        adjacency.setdefault(str(edge.get("source_id")), []).append(edge)
+
+    starts = [
+        str(node.get("node_id"))
+        for node in graph.get("nodes", [])
+        if str(node.get("node_type")) in {"HTTP", "DNS", "TCP"} and node.get("node_id")
+    ]
+    paths = []
+    for start in starts:
+        _walk_paths(adjacency, start, [start], [], paths, max_depth=4)
+        if len(paths) >= max_paths:
+            break
+    return paths[:max_paths]
+
+
+def _walk_paths(
+    adjacency: dict[str, list[dict[str, Any]]],
+    current: str,
+    node_path: list[str],
+    relation_path: list[str],
+    output: list[dict[str, Any]],
+    max_depth: int,
+) -> None:
+    if len(node_path) > max_depth:
+        return
+    outgoing = adjacency.get(current, [])
+    if not outgoing:
+        if len(node_path) >= 2:
+            output.append(
+                {
+                    "nodes": list(node_path),
+                    "relations": list(relation_path),
+                    "summary": _path_summary(node_path, relation_path),
+                }
+            )
+        return
+    for edge in outgoing:
+        target = str(edge.get("target_id") or "")
+        if not target or target in node_path:
+            continue
+        next_nodes = [*node_path, target]
+        next_relations = [*relation_path, str(edge.get("relation") or "related")]
+        if target.startswith("external:") or len(next_nodes) >= max_depth:
+            output.append({"nodes": next_nodes, "relations": next_relations, "summary": _path_summary(next_nodes, next_relations)})
+        else:
+            _walk_paths(adjacency, target, next_nodes, next_relations, output, max_depth)
+
+
+def _path_summary(nodes: list[str], relations: list[str]) -> str:
+    parts = []
+    for index, node in enumerate(nodes):
+        parts.append(node)
+        if index < len(relations):
+            parts.append(f"--{relations[index]}-->")
+    return " ".join(parts)
 
 
 def render_mermaid_graph(graph: dict[str, Any], max_edges: int = 40) -> str:

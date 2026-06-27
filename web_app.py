@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
-from flask import Flask, redirect, render_template_string, request, send_from_directory, url_for
+from flask import Flask, Response, redirect, render_template_string, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 
 from main import run_payload, run_pcap
@@ -135,10 +138,6 @@ REPORT_PAGE = """
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ filename }} - FlowTragent</title>
-  <script type="module">
-    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-    mermaid.initialize({ startOnLoad: true, securityLevel: "strict" });
-  </script>
   <style>
     body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; color: #18202a; background: #f7f9fc; }
     main { max-width: 1180px; margin: 0 auto; padding: 28px; }
@@ -148,7 +147,8 @@ REPORT_PAGE = """
     a:hover { text-decoration: underline; }
     .meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
     .meta div { padding: 10px; background: #f3f6fa; border-radius: 6px; }
-    .mermaid { overflow: auto; }
+    .graph-svg { width: 100%; min-height: 260px; border: 1px solid #e5e7eb; border-radius: 6px; background: white; }
+    pre { overflow: auto; background: #f6f8fa; padding: 12px; border-radius: 6px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { border-bottom: 1px solid #e5e7eb; padding: 8px; text-align: left; vertical-align: top; }
     code { font-family: Consolas, monospace; }
@@ -169,7 +169,15 @@ REPORT_PAGE = """
   {% if graph.get("mermaid") %}
   <section>
     <h2>Evidence Graph</h2>
-    <pre class="mermaid">{{ graph.get("mermaid") }}</pre>
+    {% if graph.get("dot") %}
+    <object class="graph-svg" data="{{ url_for('graph_svg', filename=json_name) }}" type="image/svg+xml">
+      <pre>{{ graph.get("dot") }}</pre>
+    </object>
+    {% endif %}
+    <h3>Mermaid</h3>
+    <pre>{{ graph.get("mermaid") }}</pre>
+    <h3>Graphviz DOT</h3>
+    <pre>{{ graph.get("dot", "") }}</pre>
   </section>
   {% endif %}
 
@@ -294,6 +302,27 @@ def view_report(filename: str):
 @app.get("/reports/<path:filename>")
 def download_report(filename: str):
     return send_from_directory(CONFIG["paths"]["report_dir"], secure_filename(filename), as_attachment=False)
+
+
+@app.get("/graph-svg/<path:filename>")
+def graph_svg(filename: str):
+    safe_name = secure_filename(filename)
+    json_path = Path(CONFIG["paths"]["report_dir"]) / safe_name
+    if not json_path.exists():
+        return Response("Report JSON not found.", status=404, mimetype="text/plain")
+    analysis = json.loads(json_path.read_text(encoding="utf-8"))
+    dot_text = (analysis.get("evidence_graph") or {}).get("dot")
+    if not dot_text:
+        return Response("Report does not contain evidence_graph.dot.", status=404, mimetype="text/plain")
+    dot_bin = shutil.which("dot")
+    if not dot_bin:
+        return Response(dot_text, status=200, mimetype="text/plain")
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        dot_path = Path(tmp_dir) / "graph.dot"
+        svg_path = Path(tmp_dir) / "graph.svg"
+        dot_path.write_text(dot_text, encoding="utf-8")
+        subprocess.run([dot_bin, "-Tsvg", str(dot_path), "-o", str(svg_path)], check=True)
+        return Response(svg_path.read_text(encoding="utf-8"), mimetype="image/svg+xml")
 
 
 def _checked(name: str) -> bool:

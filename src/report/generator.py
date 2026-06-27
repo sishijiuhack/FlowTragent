@@ -21,8 +21,26 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
         f"- Parsed CSV: `{analysis.get('csv_file') or 'N/A'}`",
         f"- Payload count: `{analysis.get('payload_count', 0)}`",
         "",
-        "## Attack Assessment",
+        "## 中文摘要",
     ]
+    impact_cn = _impact_cn(analysis.get("impact_assessment") or {})
+    lines.extend(
+        [
+            f"- 研判结论：`{impact_cn.get('verdict')}`",
+            f"- 置信度：`{impact_cn.get('confidence')}`",
+            f"- 研判依据：{impact_cn.get('reasoning')}",
+            f"- 首要 CVE 候选：`{((analysis.get('top_cves') or [{}])[0]).get('cve', 'N/A')}`",
+        ]
+    )
+    graph_paths = (analysis.get("evidence_graph") or {}).get("paths") or []
+    if graph_paths:
+        lines.append(f"- 关键证据路径：`{graph_paths[0].get('summary')}`")
+    lines.extend(
+        [
+            "",
+        "## Attack Assessment",
+        ]
+    )
     for attack_type in analysis.get("attack_types", []):
         lines.append(f"- {attack_type}")
 
@@ -307,3 +325,25 @@ def _format_pairs(pairs: list) -> str:
     for key, count in pairs:
         rendered.append(f"`{key}` ({count})")
     return ", ".join(rendered)
+
+
+def _impact_cn(impact: dict) -> dict:
+    verdict_map = {
+        "Likely successful exploitation with C2 indicators": "疑似成功利用并伴随 C2 通信迹象",
+        "Possible successful exploitation with C2 indicators": "可能成功利用并伴随 C2 通信迹象",
+        "Possible compromise with C2 indicators": "可能存在失陷并伴随 C2 通信迹象",
+        "Likely successful exploitation": "疑似成功利用",
+        "Possible successful exploitation": "可能成功利用",
+        "Likely exploitation attempt with successful HTTP response": "疑似漏洞利用尝试且收到成功 HTTP 响应",
+        "Likely exploitation attempt": "疑似漏洞利用尝试",
+        "Possible exploitation attempt": "可能的漏洞利用尝试",
+        "Reconnaissance or probing": "侦察或探测行为",
+        "Insufficient evidence": "证据不足",
+    }
+    confidence_map = {"high": "高", "medium": "中", "low": "低"}
+    reasoning = impact.get("reasoning") or "当前证据不足以形成明确研判。"
+    return {
+        "verdict": verdict_map.get(impact.get("verdict"), impact.get("verdict") or "证据不足"),
+        "confidence": confidence_map.get(str(impact.get("confidence", "")).lower(), impact.get("confidence") or "低"),
+        "reasoning": reasoning,
+    }

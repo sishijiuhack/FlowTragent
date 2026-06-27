@@ -13,6 +13,7 @@ def detect_c2(events: list[NetworkEvent]) -> list[dict]:
     findings.extend(_detect_http_beacons([event for event in events if isinstance(event, HttpEvent)]))
     findings.extend(_detect_dns_c2(events))
     findings.extend(_detect_tcp_beacons(events))
+    findings.extend(_detect_endpoint_external(events))
     return [finding.to_dict() for finding in findings]
 
 
@@ -169,6 +170,54 @@ def _detect_tcp_beacons(events: list[NetworkEvent]) -> list[C2Finding]:
                 beacon_interval=interval,
                 jitter=jitter,
                 evidence_ids=[event.event_id for event in ordered],
+                indicators=indicators,
+            )
+        )
+    return findings
+
+
+def _detect_endpoint_external(events: list[NetworkEvent]) -> list[C2Finding]:
+    endpoint_events = [
+        event
+        for event in events
+        if event.protocol == "ENDPOINT" and event.src_ip and event.dst_ip and event.dst_port
+    ]
+    if not endpoint_events:
+        return []
+    network_destinations = {(event.dst_ip, event.dst_port) for event in events if event.protocol in {"HTTP", "DNS", "TCP"}}
+    groups: dict[tuple[str, str, int], list[NetworkEvent]] = defaultdict(list)
+    for event in endpoint_events:
+        groups[(event.src_ip or "", event.dst_ip or "", event.dst_port or 0)].append(event)
+
+    findings = []
+    for (src_ip, dst_ip, dst_port), grouped in groups.items():
+        indicators = []
+        commands = " ".join(event.payload_clean.lower() for event in grouped)
+        if any(marker in commands for marker in ("curl", "wget", "powershell", "certutil", "bash -c", "nc ", "ncat")):
+            indicators.append("endpoint process initiated external network-capable command")
+        if dst_port not in {22, 25, 53, 80, 110, 123, 143, 443, 465, 587, 993, 995}:
+            indicators.append("uncommon destination port from endpoint telemetry")
+        if (dst_ip, dst_port) in network_destinations:
+            indicators.append("endpoint destination also appears in network evidence")
+        if len(grouped) >= 2:
+            indicators.append("repeated endpoint events to same destination")
+        if not indicators:
+            continue
+        timestamps = [event.timestamp for event in grouped if event.timestamp is not None]
+        confidence = "high" if len(indicators) >= 2 else "medium"
+        findings.append(
+            C2Finding(
+                c2_type="Endpoint External Connection",
+                confidence=confidence,
+                src_ip=src_ip,
+                dst_ip=dst_ip,
+                dst_port=dst_port,
+                first_seen=min(timestamps) if timestamps else None,
+                last_seen=max(timestamps) if timestamps else None,
+                request_count=len(grouped),
+                beacon_interval=None,
+                jitter=None,
+                evidence_ids=[event.event_id for event in grouped],
                 indicators=indicators,
             )
         )

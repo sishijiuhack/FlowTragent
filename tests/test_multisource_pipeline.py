@@ -49,8 +49,10 @@ def main() -> None:
     assert "Exploitation" in stages
     assert "Command Execution" in stages
     assert "Payload Delivery" in stages
-    assert analysis["impact_assessment"]["verdict"] == "Likely successful exploitation"
+    assert analysis["impact_assessment"]["verdict"] == "Likely successful exploitation with C2 indicators"
     assert analysis["impact_assessment"]["confidence"] == "high"
+    assert analysis["c2_findings"]
+    assert any(item["c2_type"] == "Endpoint External Connection" for item in analysis["c2_findings"])
     evidence_ids = {item["evidence_id"] for item in analysis["agent_findings"]["evidence_pack"]}
     assert "endpoint1-1" in evidence_ids
     relations = {item["relation"] for item in analysis["evidence_graph"]["edges"]}
@@ -59,6 +61,9 @@ def main() -> None:
     assert "process_external_connection" in relations
     graph_nodes = {item["node_id"] for item in analysis["evidence_graph"]["nodes"]}
     assert "external:203.0.113.50:8080" in graph_nodes
+    assert analysis["evidence_graph"]["paths"]
+    assert "endpoint1-1" in analysis["evidence_graph"]["paths"][0]["summary"]
+    assert any("Evidence path:" in item for item in analysis["agent_findings"]["key_findings"])
     mermaid = analysis["evidence_graph"]["mermaid"]
     assert mermaid.startswith("flowchart TD")
     assert "process_external_connection" in mermaid
@@ -70,7 +75,8 @@ def main() -> None:
     assert "## Evidence Graph" in report
     assert "```mermaid" in report
     assert "```graphviz" in report
-    assert "Likely successful exploitation" in report
+    assert "## 中文摘要" in report
+    assert "疑似成功利用并伴随 C2 通信迹象" in report
 
 
 if __name__ == "__main__":

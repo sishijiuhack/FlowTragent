@@ -52,6 +52,7 @@ def main() -> None:
                         }
                     ],
                     "mermaid": "flowchart TD\n  endpoint1_1 --> external_203_0_113_50_8080",
+                    "dot": 'digraph FlowTragentEvidence {\n  "endpoint1-1" -> "external:203.0.113.50:8080" [label="process_external_connection"];\n}',
                 },
             },
             ensure_ascii=False,
@@ -63,8 +64,13 @@ def main() -> None:
     body = detail.get_data(as_text=True)
     assert detail.status_code == 200
     assert "Evidence Graph" in body
-    assert "mermaid" in body
+    assert "Graphviz DOT" in body
     assert "process_external_connection" in body
+
+    svg = client.get(f"/graph-svg/{json_path.name}")
+    assert svg.status_code == 200
+    assert svg.mimetype in {"image/svg+xml", "text/plain"}
+    assert "FlowTragentEvidence" in svg.get_data(as_text=True) or "<svg" in svg.get_data(as_text=True)
 
 
 if __name__ == "__main__":
