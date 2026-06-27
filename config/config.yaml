@@ -22,3 +22,12 @@ ollama:
 live_capture:
   duration: 30
   packet_count: 0
+
+live:
+  alert_db: data/live/alerts.db
+  incoming_dir: data/live/incoming
+  segment_seconds: 60
+  min_risk_score: 50
+  max_concurrent_analyses: 1
+  ollama_mode: scheduled
+  ollama_interval_minutes: 10

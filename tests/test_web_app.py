@@ -20,7 +20,14 @@ def main() -> None:
     assert index.status_code == 200
     assert "FlowTragent" in index_body
     assert "PCAP + 日志分析" in index_body
+    assert "实时告警" in index_body
     assert "灰" not in index_body
+
+    alerts = client.get("/alerts")
+    alerts_body = alerts.get_data(as_text=True)
+    assert alerts.status_code == 200
+    assert "实时告警" in alerts_body
+    assert "准实时预筛结果" in alerts_body
 
     report_dir = PROJECT_ROOT / web_app.CONFIG["paths"]["report_dir"]
     report_dir.mkdir(parents=True, exist_ok=True)

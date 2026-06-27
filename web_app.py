@@ -14,10 +14,12 @@ from werkzeug.utils import secure_filename
 
 from main import run_payload, run_pcap
 from src.core.settings import load_config
+from src.storage.alert_store import AlertStore
 
 
 app = Flask(__name__)
 CONFIG = load_config()
+ALERT_DB = Path(CONFIG.get("live", {}).get("alert_db", "data/live/alerts.db"))
 
 
 PAGE = """
@@ -88,7 +90,10 @@ PAGE = """
       <h1>FlowTragent</h1>
       <p class="subtle">攻击流量输入 -> 多源证据融合 -> 中英文溯源报告</p>
     </div>
-    <a class="button secondary" href="{{ url_for('index') }}">刷新</a>
+    <div class="actions">
+      <a class="button secondary" href="{{ url_for('alerts') }}">实时告警</a>
+      <a class="button secondary" href="{{ url_for('index') }}">刷新</a>
+    </div>
   </header>
 
   <div class="grid">
@@ -168,6 +173,105 @@ PAGE = """
     </ul>
     {% else %}
     <p class="subtle">暂无报告。</p>
+    {% endif %}
+  </section>
+</main>
+</body>
+</html>
+"""
+
+
+ALERTS_PAGE = """
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>实时告警 - FlowTragent</title>
+  <style>
+    :root { color-scheme: light; --bg:#f5f6f8; --panel:#fff; --line:#d9dde3; --soft:#e8ebef; --text:#171a1f; --muted:#69707a; --accent:#3f4752; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Arial, "Microsoft YaHei", sans-serif; color:var(--text); background:var(--bg); }
+    main { max-width:1220px; margin:0 auto; padding:24px; }
+    header { display:flex; justify-content:space-between; gap:16px; align-items:center; padding:16px 0 18px; border-bottom:1px solid var(--line); }
+    h1 { margin:0; font-size:22px; }
+    section { margin:16px 0; padding:18px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { border-bottom:1px solid var(--soft); padding:8px; text-align:left; vertical-align:top; }
+    code { font-family:Consolas, monospace; overflow-wrap:anywhere; }
+    a { color:#30363d; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .button { display:inline-flex; align-items:center; min-height:34px; padding:7px 12px; border:1px solid var(--line); border-radius:6px; color:#222; background:#fff; text-decoration:none; }
+    .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .muted { color:var(--muted); }
+    .pill { display:inline-flex; padding:3px 8px; border-radius:999px; border:1px solid var(--line); background:#f7f8fa; }
+    .critical { border-color:#b42318; color:#b42318; background:#fff5f5; }
+    .high { border-color:#b54708; color:#b54708; background:#fff7ed; }
+    .medium { border-color:#a16207; color:#a16207; background:#fefce8; }
+    .low { border-color:#64748b; color:#475569; background:#f8fafc; }
+    @media (max-width:860px) { main { padding:16px; } header { display:block; } table { display:block; overflow:auto; } .toolbar { margin-top:10px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>实时告警</h1>
+      <p class="muted">准实时预筛结果与深度溯源报告</p>
+    </div>
+    <nav class="toolbar">
+      <a class="button" href="{{ url_for('index') }}">返回首页</a>
+      <a class="button" href="{{ url_for('alerts') }}">刷新</a>
+    </nav>
+  </header>
+  <section>
+    {% if alerts %}
+    <table>
+      <thead>
+        <tr>
+          <th>时间</th>
+          <th>严重度</th>
+          <th>状态</th>
+          <th>分数</th>
+          <th>PCAP</th>
+          <th>原因</th>
+          <th>统计</th>
+          <th>报告</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for item in alerts %}
+        <tr>
+          <td><code>{{ item.created_at }}</code></td>
+          <td><span class="pill {{ item.severity }}">{{ item.severity }}</span></td>
+          <td>{{ item.status }}</td>
+          <td>{{ item.risk_score }}</td>
+          <td><code>{{ item.segment_path }}</code></td>
+          <td>{{ item.reasons|join(", ") }}</td>
+          <td>
+            events={{ item.stats.get("event_count", 0) }},
+            http={{ item.stats.get("http_event_count", 0) }},
+            dns={{ item.stats.get("dns_event_count", 0) }},
+            tcp={{ item.stats.get("tcp_event_count", 0) }}
+          </td>
+          <td>
+            {% if item.report_path %}
+              {% set report_name = item.report_path.split('/')[-1].split('\\\\')[-1] %}
+              <a href="{{ url_for('view_report', filename=report_name, lang='zh') }}">中文</a>
+              |
+              <a href="{{ url_for('view_report', filename=report_name, lang='en') }}">English</a>
+            {% elif item.error %}
+              <span class="muted">{{ item.error }}</span>
+            {% else %}
+              <span class="muted">{{ item.recommended_action }}</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">暂无实时告警。启动 `scripts/live_analyzer_worker.py` 后，这里会显示预筛与分析结果。</p>
     {% endif %}
   </section>
 </main>
@@ -341,6 +445,13 @@ REPORT_PAGE = """
 def index():
     q = request.args.get("q", "").strip()
     return render_template_string(PAGE, report=None, reports=_recent_reports(query=q), q=q)
+
+
+@app.get("/alerts")
+def alerts():
+    limit = int(request.args.get("limit", "100"))
+    store = AlertStore(ALERT_DB)
+    return render_template_string(ALERTS_PAGE, alerts=store.list_alerts(limit=limit))
 
 
 @app.post("/analyze-payload")

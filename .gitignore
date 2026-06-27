@@ -13,12 +13,14 @@ data/pcap/*
 data/csv/*
 data/index/*
 data/rag/*
+data/live/*
 reports/*
 
 !data/pcap/.gitkeep
 !data/csv/.gitkeep
 !data/index/.gitkeep
 !data/rag/.gitkeep
+!data/live/.gitkeep
 !reports/.gitkeep
 
 .DS_Store

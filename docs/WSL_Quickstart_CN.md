@@ -179,7 +179,80 @@ Web UI 支持：
 
 如果 Windows 浏览器无法访问 WSL 服务，可临时把 `web_app.py` 末尾监听地址从 `127.0.0.1` 改为 `0.0.0.0` 后重启。
 
-## 8. Ollama 可选验证
+## 8. 准实时服务器模式
+
+该模式用于在 WSL Ubuntu 中模拟服务器部署。核心流程是：
+
+```text
+tcpdump 分片抓包 -> 轻量预筛 -> 可疑窗口深度分析 -> SQLite 告警 -> Web /alerts 查看
+```
+
+终端 1：启动 Web：
+
+```bash
+python web_app.py
+```
+
+终端 2：启动抓包 worker：
+
+```bash
+python scripts/live_capture_worker.py \
+  --interface eth0 \
+  --segment-seconds 60 \
+  --profile balanced
+```
+
+如果只是检查 tcpdump 命令，不实际抓包：
+
+```bash
+python scripts/live_capture_worker.py \
+  --interface eth0 \
+  --segment-seconds 60 \
+  --profile balanced \
+  --dry-run
+```
+
+终端 3：启动分析 worker：
+
+```bash
+python scripts/live_analyzer_worker.py \
+  --watch-dir data/live/incoming \
+  --db data/live/alerts.db \
+  --enable-rag
+```
+
+测试时也可以只处理当前目录已有 PCAP 后退出：
+
+```bash
+python scripts/live_analyzer_worker.py \
+  --watch-dir data/live/incoming \
+  --db data/live/alerts.db \
+  --once
+```
+
+Web 查看告警：
+
+```text
+http://127.0.0.1:5000/alerts
+```
+
+实时模式默认不会对所有流量跑 NOVA-F、Agent 或 Ollama。它会先用 `src/live/prefilter.py` 做轻量预筛，只有风险分达到阈值或命中高危特征的 PCAP 分片才进入完整分析。
+
+常用抓包 profile：
+
+```text
+http_dns  仅覆盖 HTTP/HTTPS 常见端口和 DNS，资源占用最低
+balanced  覆盖 HTTP/DNS、常见服务端口和 1-1024 TCP 端口，推荐默认
+wide      覆盖 tcp or udp，适合短时间排查
+```
+
+预筛和分析状态保存在：
+
+```text
+data/live/alerts.db
+```
+
+## 9. Ollama 可选验证
 
 安装并拉取轻量模型：
 
@@ -202,10 +275,13 @@ python scripts/ollama_smoke_test.py --host http://127.0.0.1:11434 --model phi3:m
 
 如果 Ollama 不可用，FlowTragent 仍会生成确定性 Agent 报告，只是 LLM 结构化摘要会标记为不可用或降级。
 
-## 9. 推荐测试集
+## 10. 推荐测试集
 
 ```bash
 python -m py_compile src/correlation/evidence_graph.py src/report/generator.py web_app.py
+python tests/test_live_prefilter.py
+python tests/test_alert_store.py
+python tests/test_live_analyzer_worker.py
 python tests/test_nova.py
 python tests/test_pipeline.py
 python tests/test_multisource_pipeline.py
@@ -218,7 +294,7 @@ python tests/test_llm_summary.py
 python -m pip check
 ```
 
-## 10. 常见问题
+## 11. 常见问题
 
 ### 10.1 Chroma telemetry 报错
 
