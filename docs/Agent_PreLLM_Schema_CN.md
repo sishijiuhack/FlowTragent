@@ -103,3 +103,49 @@ python tests/test_pipeline.py
 python tests/test_dns_tcp_c2_pipeline.py
 python tests/test_post_exploit_and_c2_pipeline.py
 ```
+
+## 6. LLM 结构化摘要接入约束
+
+当前 LLM 接入只允许生成结构化摘要，不允许覆盖 deterministic 判断。
+
+新增输出字段：
+
+```text
+llm_structured_summary
+```
+
+当前 schema：
+
+```json
+{
+  "schema_version": "llm-summary-v1",
+  "model": "phi3:mini",
+  "status": "ok",
+  "summary": "...",
+  "supported_claims": [
+    {
+      "claim": "...",
+      "evidence_ids": ["pkt-1"]
+    }
+  ],
+  "unsupported_claims": [],
+  "recommended_actions": [],
+  "invalid_references": [],
+  "deterministic_verdict": "..."
+}
+```
+
+校验规则：
+
+- `supported_claims[].evidence_ids` 必须存在于 `agent_findings.evidence_pack`。
+- 引用了不存在 evidence ID 的 claim 会被降级到 `unsupported_claims`。
+- 无法解析为 JSON 的 LLM 输出会标记为 `status=invalid_json`。
+- Ollama 不可用时会标记为 `status=unavailable`，主流程仍生成 deterministic 报告。
+- `deterministic_verdict` 来自 `impact_assessment.verdict`，LLM 不能覆盖。
+
+验证命令：
+
+```bash
+python tests/test_llm_summary.py
+python tests/test_ollama_unavailable_pipeline.py
+```

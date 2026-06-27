@@ -1,0 +1,135 @@
+"""Structured LLM summary helpers with evidence-id validation."""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import Any, Dict, List
+
+
+LLM_SUMMARY_SCHEMA_VERSION = "llm-summary-v1"
+
+
+def build_structured_llm_prompt(analysis: Dict[str, Any]) -> str:
+    """Build a constrained prompt from deterministic evidence."""
+    agent_findings = analysis.get("agent_findings") or {}
+    evidence_pack = agent_findings.get("evidence_pack") or []
+    evidence_lines = []
+    for item in evidence_pack[:30]:
+        evidence_lines.append(
+            "- {id}: type={type} source={source} target={target} related={related} summary={summary}".format(
+                id=item.get("evidence_id"),
+                type=item.get("evidence_type"),
+                source=item.get("source") or "",
+                target=item.get("target") or "",
+                related=", ".join(item.get("related", [])),
+                summary=item.get("summary") or "",
+            )
+        )
+
+    deterministic = {
+        "impact_assessment": analysis.get("impact_assessment") or {},
+        "top_cves": (analysis.get("top_cves") or [])[:5],
+        "agent_findings": {
+            "schema_version": agent_findings.get("schema_version"),
+            "mode": agent_findings.get("mode"),
+            "executive_summary": agent_findings.get("executive_summary"),
+            "key_findings": agent_findings.get("key_findings", []),
+            "limitations": agent_findings.get("limitations", []),
+            "next_actions": agent_findings.get("next_actions", []),
+        },
+    }
+
+    return (
+        "You are a security incident response summarizer. Use only the deterministic evidence below. "
+        "Do not change or override the deterministic impact verdict. Return JSON only, with this schema:\n"
+        "{\n"
+        f'  "schema_version": "{LLM_SUMMARY_SCHEMA_VERSION}",\n'
+        '  "summary": "short incident summary",\n'
+        '  "supported_claims": [{"claim": "claim text", "evidence_ids": ["pkt-1"]}],\n'
+        '  "unsupported_claims": ["claim that lacks evidence"],\n'
+        '  "recommended_actions": ["action"]\n'
+        "}\n\n"
+        "Every supported_claims item must include evidence_ids from the allowed list. "
+        "If a claim has no matching evidence_id, put it in unsupported_claims.\n\n"
+        f"Deterministic analysis JSON:\n{json.dumps(deterministic, ensure_ascii=False, indent=2)}\n\n"
+        "Allowed evidence:\n"
+        + ("\n".join(evidence_lines) if evidence_lines else "No packet evidence available.")
+    )
+
+
+def parse_and_validate_llm_summary(raw_text: str | None, analysis: Dict[str, Any], model: str | None = None) -> Dict[str, Any]:
+    """Parse LLM JSON and mark claims that reference unknown evidence IDs."""
+    if not raw_text:
+        return _error("empty_response", "LLM returned an empty response.", model=model)
+
+    try:
+        parsed = json.loads(_extract_json(raw_text))
+    except (TypeError, ValueError) as exc:
+        return _error("invalid_json", f"LLM response was not valid JSON: {exc}", raw_text=raw_text, model=model)
+
+    allowed_ids = {
+        str(item.get("evidence_id"))
+        for item in (analysis.get("agent_findings") or {}).get("evidence_pack", [])
+        if item.get("evidence_id")
+    }
+    supported = []
+    unsupported = [str(item) for item in parsed.get("unsupported_claims", []) if item]
+    invalid_references = []
+    for item in parsed.get("supported_claims", []) or []:
+        claim = str(item.get("claim", "")).strip()
+        evidence_ids = [str(value) for value in item.get("evidence_ids", []) if str(value) in allowed_ids]
+        rejected = [str(value) for value in item.get("evidence_ids", []) if str(value) not in allowed_ids]
+        if rejected:
+            invalid_references.append({"claim": claim, "invalid_evidence_ids": rejected})
+        if claim and evidence_ids:
+            supported.append({"claim": claim, "evidence_ids": evidence_ids})
+        elif claim:
+            unsupported.append(claim)
+
+    return {
+        "schema_version": LLM_SUMMARY_SCHEMA_VERSION,
+        "model": model,
+        "status": "ok" if not invalid_references else "validated_with_dropped_references",
+        "summary": str(parsed.get("summary", "")).strip(),
+        "supported_claims": supported,
+        "unsupported_claims": _dedupe(unsupported),
+        "recommended_actions": [str(item) for item in parsed.get("recommended_actions", []) if item],
+        "invalid_references": invalid_references,
+        "deterministic_verdict": (analysis.get("impact_assessment") or {}).get("verdict"),
+    }
+
+
+def _extract_json(raw_text: str) -> str:
+    text = raw_text.strip()
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+    if fenced:
+        return fenced.group(1)
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        return text[start : end + 1]
+    return text
+
+
+def _error(status: str, message: str, raw_text: str | None = None, model: str | None = None) -> Dict[str, Any]:
+    return {
+        "schema_version": LLM_SUMMARY_SCHEMA_VERSION,
+        "model": model,
+        "status": status,
+        "summary": "",
+        "supported_claims": [],
+        "unsupported_claims": [message],
+        "recommended_actions": [],
+        "invalid_references": [],
+        "raw_response": raw_text,
+        "deterministic_verdict": None,
+    }
+
+
+def _dedupe(items: List[str]) -> List[str]:
+    deduped = []
+    for item in items:
+        if item and item not in deduped:
+            deduped.append(item)
+    return deduped

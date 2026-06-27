@@ -20,11 +20,14 @@ class OllamaClient:
         except requests.RequestException:
             return False
 
-    def generate(self, prompt: str) -> Optional[str]:
+    def generate(self, prompt: str, json_format: bool = False) -> Optional[str]:
+        payload = {"model": self.model, "prompt": prompt, "stream": False}
+        if json_format:
+            payload["format"] = "json"
         try:
             response = requests.post(
                 f"{self.host}/api/generate",
-                json={"model": self.model, "prompt": prompt, "stream": False},
+                json=payload,
                 timeout=self.timeout,
             )
             response.raise_for_status()
@@ -32,4 +35,3 @@ class OllamaClient:
             return str(data.get("response", "")).strip()
         except requests.RequestException:
             return None
-

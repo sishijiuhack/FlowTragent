@@ -44,8 +44,32 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
             for item in key_findings:
                 lines.append(f"- {item}")
 
-    if analysis.get("llm_summary"):
-        lines.extend(["", "## Agent Summary", analysis["llm_summary"]])
+    llm_structured = analysis.get("llm_structured_summary") or {}
+    if llm_structured:
+        lines.extend(["", "## LLM Structured Summary"])
+        lines.append(f"- Schema: `{llm_structured.get('schema_version', 'unknown')}`")
+        lines.append(f"- Status: `{llm_structured.get('status', 'unknown')}`")
+        if llm_structured.get("model"):
+            lines.append(f"- Model: `{llm_structured.get('model')}`")
+        if llm_structured.get("deterministic_verdict"):
+            lines.append(f"- Deterministic Verdict: `{llm_structured.get('deterministic_verdict')}`")
+        if llm_structured.get("summary"):
+            lines.append(f"- Summary: {llm_structured.get('summary')}")
+        supported_claims = llm_structured.get("supported_claims") or []
+        if supported_claims:
+            lines.append("- Supported claims:")
+            for item in supported_claims:
+                lines.append(f"  - {item.get('claim')} Evidence: {', '.join(item.get('evidence_ids', []))}")
+        unsupported_claims = llm_structured.get("unsupported_claims") or []
+        if unsupported_claims:
+            lines.append("- Unsupported claims:")
+            for item in unsupported_claims:
+                lines.append(f"  - {item}")
+        invalid_refs = llm_structured.get("invalid_references") or []
+        if invalid_refs:
+            lines.append("- Dropped invalid evidence references:")
+            for item in invalid_refs:
+                lines.append(f"  - {item.get('claim')}: {', '.join(item.get('invalid_evidence_ids', []))}")
 
     lines.extend(["", "## Top CVE Candidates"])
     top_cves = analysis.get("top_cves", [])

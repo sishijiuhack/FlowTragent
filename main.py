@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from src.agent.agent import TraceAgent
+from src.agent.llm_summary import build_structured_llm_prompt, parse_and_validate_llm_summary
 from src.agent.orchestrator import run_agent_layer
 from src.correlation.attack_chain import detect_attack_stages
 from src.correlation.c2_detector import detect_c2
@@ -110,22 +111,13 @@ def _analyze(
         query_text = "\n".join(payloads[:5])
         rag_context = KnowledgeBase(config["paths"]["rag_dir"]).query(query_text, top_k=3)
 
-    llm_summary = None
-    ollama_enabled = enable_ollama or bool(config.get("ollama", {}).get("enabled"))
-    if ollama_enabled:
-        ollama = OllamaClient(config["ollama"]["host"], config["ollama"]["model"])
-        if ollama.is_available():
-            llm_summary = ollama.generate(agent.build_llm_prompt(payloads, candidates, rag_context))
-        else:
-            llm_summary = "Ollama is not available; rule-based analysis was used."
-
     analysis = agent.analyze(
         payloads=payloads,
         candidates=candidates,
         source_file=source_file,
         csv_file=csv_file,
         rag_context=rag_context,
-        llm_summary=llm_summary,
+        llm_summary=None,
     )
     evidence_events = network_events or events or []
     if evidence_events:
@@ -139,6 +131,27 @@ def _analyze(
         analysis["source_summary"] = summarize_sources(evidence_events)
         analysis["impact_assessment"] = assess_impact(http_events, attack_chain, c2_findings, candidates)
     analysis["agent_findings"] = run_agent_layer(analysis)
+    ollama_enabled = enable_ollama or bool(config.get("ollama", {}).get("enabled"))
+    if ollama_enabled:
+        model = config["ollama"]["model"]
+        ollama = OllamaClient(config["ollama"]["host"], model)
+        if ollama.is_available():
+            raw_summary = ollama.generate(build_structured_llm_prompt(analysis), json_format=True)
+            analysis["llm_structured_summary"] = parse_and_validate_llm_summary(raw_summary, analysis, model=model)
+            analysis["llm_summary"] = analysis["llm_structured_summary"].get("summary") or None
+        else:
+            analysis["llm_structured_summary"] = {
+                "schema_version": "llm-summary-v1",
+                "model": model,
+                "status": "unavailable",
+                "summary": "",
+                "supported_claims": [],
+                "unsupported_claims": ["Ollama is not available; deterministic agent analysis was used."],
+                "recommended_actions": [],
+                "invalid_references": [],
+                "deterministic_verdict": (analysis.get("impact_assessment") or {}).get("verdict"),
+            }
+            analysis["llm_summary"] = "Ollama is not available; deterministic agent analysis was used."
     return analysis
 
 
