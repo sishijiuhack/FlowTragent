@@ -643,3 +643,39 @@ flowchart TD
 ```bash
 python tests/test_multisource_pipeline.py
 ```
+
+## 17. Web UI Mermaid 图谱查看
+
+Web UI 现在可以直接查看报告中的 Evidence Graph Mermaid 图。
+
+启动：
+
+```bash
+python web_app.py
+```
+
+浏览器打开：
+
+```text
+http://127.0.0.1:5000
+```
+
+当前 Web UI 支持：
+
+- Payload 直接分析。
+- PCAP 上传分析。
+- Access Log / DNS Log / Endpoint Log 可选上传。
+- 最近报告列表。
+- 报告详情页 `/view-report/<report.md>`。
+- Evidence Graph Mermaid 渲染。
+- Attack Chain 表格展示。
+- Graph Edges 表格展示。
+- Markdown / JSON 报告查看。
+
+说明：Mermaid 渲染使用浏览器端 CDN。如果离线环境无法访问 CDN，报告中的 Mermaid 源码和边表仍然可见，不影响分析结果。
+
+验证命令：
+
+```bash
+python tests/test_web_app.py
+```
