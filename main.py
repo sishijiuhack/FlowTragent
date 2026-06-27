@@ -20,6 +20,7 @@ from src.core.nova_client import NovaClient
 from src.core.ollama_client import OllamaClient
 from src.core.settings import load_config
 from src.parser.capture import capture_with_tcpdump
+from src.parser.log_parser import parse_log_bundle
 from src.parser.pcap_parser import parse_network_events, parse_pcap_events, pcap_to_csv
 from src.rag.knowledge_base import KnowledgeBase
 from src.report.generator import write_report
@@ -38,6 +39,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--enable-ollama", action="store_true", help="Ask local Ollama to produce an agent summary")
     parser.add_argument("--capture-seconds", type=int, help="Live capture duration")
     parser.add_argument("--packet-count", type=int, default=0, help="Stop live capture after N packets when > 0")
+    parser.add_argument("--access-log", action="append", default=[], help="Supplementary web access log path; can be repeated")
+    parser.add_argument("--dns-log", action="append", default=[], help="Supplementary DNS log path; can be repeated")
+    parser.add_argument("--endpoint-log", action="append", default=[], help="Supplementary endpoint/process log path; can be repeated")
     return parser.parse_args()
 
 
@@ -56,10 +60,16 @@ def run_pcap(
     force_demo_index: bool,
     enable_rag: bool,
     enable_ollama: bool,
+    access_logs: list[str] | None = None,
+    dns_logs: list[str] | None = None,
+    endpoint_logs: list[str] | None = None,
 ) -> Path:
     csv_path = Path(config["paths"]["csv_dir"]) / f"{pcap_path.stem}.csv"
     network_events = parse_network_events(str(pcap_path))
     events = parse_pcap_events(str(pcap_path))
+    log_events = parse_log_bundle(access_logs=access_logs, dns_logs=dns_logs, endpoint_logs=endpoint_logs)
+    network_events = sorted([*network_events, *log_events], key=lambda event: event.timestamp or 0)
+    events = sorted([*events, *[event for event in log_events if getattr(event, "protocol", None) == "HTTP"]], key=lambda event: event.timestamp or 0)
     extracted = pcap_to_csv(str(pcap_path), str(csv_path))
     if not network_events:
         raise RuntimeError(f"No supported network events were extracted from {pcap_path}")
@@ -124,7 +134,7 @@ def _analyze(
     evidence_events = network_events or events or []
     if evidence_events:
         http_events = events or [event for event in evidence_events if getattr(event, "protocol", None) == "HTTP"]
-        attack_chain = detect_attack_stages(http_events, candidates)
+        attack_chain = detect_attack_stages(evidence_events, candidates)
         c2_findings = detect_c2(evidence_events)
         analysis["structured_events"] = [event.to_dict() for event in evidence_events]
         analysis["attack_timeline"] = build_timeline(evidence_events)
@@ -195,6 +205,9 @@ def main() -> None:
             args.demo_index,
             args.enable_rag,
             args.enable_ollama,
+            args.access_log,
+            args.dns_log,
+            args.endpoint_log,
         )
     elif args.mode == "payload":
         if not args.input:
@@ -203,7 +216,18 @@ def main() -> None:
     else:
         if not args.input:
             raise SystemExit("--input is required for pcap mode")
-        report_path = run_pcap(Path(args.input), config, output_dir, top_k, args.demo_index, args.enable_rag, args.enable_ollama)
+        report_path = run_pcap(
+            Path(args.input),
+            config,
+            output_dir,
+            top_k,
+            args.demo_index,
+            args.enable_rag,
+            args.enable_ollama,
+            args.access_log,
+            args.dns_log,
+            args.endpoint_log,
+        )
 
     print(json.dumps({"report": str(report_path)}, ensure_ascii=False, indent=2))
 

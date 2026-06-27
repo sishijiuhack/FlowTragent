@@ -41,6 +41,17 @@ class HttpEvent(NetworkEvent):
 
 
 @dataclass
+class LogEvent(NetworkEvent):
+    log_type: str = "generic"
+    host: str | None = None
+    user: str | None = None
+    process_name: str | None = None
+    command_line: str | None = None
+    file_path: str | None = None
+    action: str | None = None
+
+
+@dataclass
 class RetrievalEvidence:
     event_id: str
     candidate_cve: str

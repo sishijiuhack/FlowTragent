@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from src.event.models import AttackStage, HttpEvent
+from src.event.models import AttackStage, HttpEvent, NetworkEvent
 
 
 SCAN_PATHS = ("/.env", "/wp-login", "/phpinfo", "/cgi-bin", "/actuator", "/server-status")
@@ -15,9 +15,10 @@ WEBSHELL_MARKERS = ("multipart/form-data", "cmd=", "pass=", "shell=", "exec=", "
 EXPLOIT_MARKERS = ("${jndi:", "ldap://", "rmi://", "../", "%2e%2e", "/etc/passwd", "union select", "sleep(")
 
 
-def detect_attack_stages(events: list[HttpEvent], candidates: list[dict]) -> list[dict]:
+def detect_attack_stages(events: list[NetworkEvent], candidates: list[dict]) -> list[dict]:
     stages: list[AttackStage] = []
-    stages.extend(_detect_recon(events))
+    http_events = [event for event in events if isinstance(event, HttpEvent)]
+    stages.extend(_detect_recon(http_events))
     stages.extend(_detect_exploitation(events, candidates))
     stages.extend(_detect_command_execution(events))
     stages.extend(_detect_payload_delivery(events))
@@ -53,7 +54,7 @@ def _detect_recon(events: list[HttpEvent]) -> list[AttackStage]:
     return stages
 
 
-def _detect_exploitation(events: list[HttpEvent], candidates: list[dict]) -> list[AttackStage]:
+def _detect_exploitation(events: list[NetworkEvent], candidates: list[dict]) -> list[AttackStage]:
     evidence_ids = []
     for event in events:
         text = event.payload_clean.lower()
@@ -73,32 +74,41 @@ def _detect_exploitation(events: list[HttpEvent], candidates: list[dict]) -> lis
     return [_stage("Exploitation", "Known vulnerability exploitation attempt", "high" if cves else "medium", related_events, reason)]
 
 
-def _detect_command_execution(events: list[HttpEvent]) -> list[AttackStage]:
+def _detect_command_execution(events: list[NetworkEvent]) -> list[AttackStage]:
     matched = [event for event in events if any(marker in event.payload_clean.lower() for marker in RCE_MARKERS)]
     if not matched:
         return []
-    confidence = "high" if any(event.status_code and 200 <= event.status_code < 400 for event in matched) else "medium"
-    return [_stage("Command Execution", "Command execution indicators in HTTP payload", confidence, matched, "Command execution keywords were observed.")]
+    has_endpoint = any(event.protocol == "ENDPOINT" for event in matched)
+    confidence = "high" if has_endpoint or any(getattr(event, "status_code", None) and 200 <= getattr(event, "status_code") < 400 for event in matched) else "medium"
+    reason = "Command execution keywords were observed."
+    if has_endpoint:
+        reason += " Endpoint/process telemetry confirms command-line activity."
+    return [_stage("Command Execution", "Command execution indicators", confidence, matched, reason)]
 
 
-def _detect_payload_delivery(events: list[HttpEvent]) -> list[AttackStage]:
+def _detect_payload_delivery(events: list[NetworkEvent]) -> list[AttackStage]:
     matched = [event for event in events if any(marker in event.payload_clean.lower() for marker in DOWNLOAD_MARKERS)]
     if not matched:
         return []
-    confidence = "high" if any(event.status_code and 200 <= event.status_code < 400 for event in matched) else "medium"
-    return [_stage("Payload Delivery", "Payload download or script delivery", confidence, matched, "Download or executable/script indicators were observed.")]
+    has_endpoint = any(event.protocol == "ENDPOINT" for event in matched)
+    confidence = "high" if has_endpoint or any(getattr(event, "status_code", None) and 200 <= getattr(event, "status_code") < 400 for event in matched) else "medium"
+    reason = "Download or executable/script indicators were observed."
+    if has_endpoint:
+        reason += " Endpoint/process telemetry confirms payload retrieval command activity."
+    return [_stage("Payload Delivery", "Payload download or script delivery", confidence, matched, reason)]
 
 
-def _detect_webshell(events: list[HttpEvent]) -> list[AttackStage]:
+def _detect_webshell(events: list[NetworkEvent]) -> list[AttackStage]:
     matched = [event for event in events if any(marker in event.payload_clean.lower() for marker in WEBSHELL_MARKERS)]
     if not matched:
         return []
-    repeated_targets = len({event.uri for event in matched if event.uri}) < len(matched)
-    confidence = "medium" if repeated_targets or any(event.status_code and 200 <= event.status_code < 400 for event in matched) else "low"
+    repeated_targets = len({getattr(event, "uri", None) for event in matched if getattr(event, "uri", None)}) < len(matched)
+    has_endpoint = any(event.protocol == "ENDPOINT" for event in matched)
+    confidence = "medium" if repeated_targets or has_endpoint or any(getattr(event, "status_code", None) and 200 <= getattr(event, "status_code") < 400 for event in matched) else "low"
     return [_stage("WebShell / Backdoor", "Possible webshell interaction", confidence, matched, "Webshell-like parameter or upload indicators were observed.")]
 
 
-def _stage(stage: str, technique: str, confidence: str, events: list[HttpEvent], reasoning: str) -> AttackStage:
+def _stage(stage: str, technique: str, confidence: str, events: list[NetworkEvent], reasoning: str) -> AttackStage:
     timestamps = [event.timestamp for event in events if event.timestamp is not None]
     return AttackStage(
         stage=stage,
