@@ -118,6 +118,7 @@ def main() -> None:
                 "llm_status": analysis.get("llm_structured_summary", {}).get("status"),
                 "generation_mode": analysis.get("llm_structured_summary", {}).get("generation_mode"),
                 "retry_attempted": analysis.get("llm_structured_summary", {}).get("retry_attempted"),
+                "summary_length": len(analysis.get("llm_structured_summary", {}).get("summary") or ""),
                 "supported_claims": len(analysis.get("llm_structured_summary", {}).get("supported_claims", [])),
                 "unsupported_claims": len(analysis.get("llm_structured_summary", {}).get("unsupported_claims", [])),
             },
