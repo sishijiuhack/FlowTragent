@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.agent.llm_summary import (
     build_llm_repair_prompt,
     build_structured_llm_prompt,
+    generate_validated_llm_summary,
     needs_llm_retry,
     parse_and_validate_llm_summary,
 )
@@ -72,6 +73,23 @@ def main() -> None:
     repair_prompt = build_llm_repair_prompt("not json", analysis)
     assert "pkt-1" in repair_prompt
     assert "valid JSON only" in repair_prompt
+
+    class FallbackClient:
+        def __init__(self):
+            self.calls = []
+
+        def generate(self, prompt: str, json_format: bool = False):
+            self.calls.append(json_format)
+            if json_format:
+                return ""
+            return '{"schema_version":"llm-summary-v1","summary":"Command execution evidence exists.","supported_claims":[{"claim":"Command execution evidence exists.","evidence_ids":["pkt-1"]}],"unsupported_claims":[],"recommended_actions":["Collect endpoint telemetry."]}'
+
+    fallback_client = FallbackClient()
+    fallback = generate_validated_llm_summary(fallback_client, analysis, model="phi3:mini")
+    assert fallback["status"] == "ok"
+    assert fallback["generation_mode"] == "plain"
+    assert fallback["retry_attempted"] is False
+    assert fallback_client.calls == [True, False]
 
 
 if __name__ == "__main__":

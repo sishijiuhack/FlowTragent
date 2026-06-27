@@ -39,6 +39,22 @@ def main() -> None:
             )
         )
         return
+    available_models = client.list_models()
+    if args.model not in available_models:
+        print(
+            json.dumps(
+                {
+                    "status": "model_unavailable",
+                    "host": args.host,
+                    "model": args.model,
+                    "available_models": available_models,
+                    "hint": f"Pull the model first: `ollama pull {args.model}`. Or rerun with one of the available models.",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
 
     if not args.skip_generate_pcap:
         subprocess.run([sys.executable, "tests/make_demo_pcap.py"], cwd=PROJECT_ROOT, check=True)
@@ -100,6 +116,7 @@ def main() -> None:
                 "status": "ok",
                 "report": str(report_path.relative_to(PROJECT_ROOT)),
                 "llm_status": analysis.get("llm_structured_summary", {}).get("status"),
+                "generation_mode": analysis.get("llm_structured_summary", {}).get("generation_mode"),
                 "retry_attempted": analysis.get("llm_structured_summary", {}).get("retry_attempted"),
                 "supported_claims": len(analysis.get("llm_structured_summary", {}).get("supported_claims", [])),
                 "unsupported_claims": len(analysis.get("llm_structured_summary", {}).get("unsupported_claims", [])),

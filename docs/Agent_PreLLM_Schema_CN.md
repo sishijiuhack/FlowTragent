@@ -168,6 +168,7 @@ llm_structured_summary
 - 引用了不存在 evidence ID 的 claim 会被降级到 `unsupported_claims`。
 - 无法解析为 JSON 的 LLM 输出会标记为 `status=invalid_json`。
 - Ollama 不可用时会标记为 `status=unavailable`，主流程仍生成 deterministic 报告。
+- Ollama 服务可用但指定模型未拉取时，会标记为 `status=model_unavailable`，并返回 `available_models`。
 - `deterministic_verdict` 来自 `impact_assessment.verdict`，LLM 不能覆盖。
 - 如果首次输出为空或不是合法 JSON，系统会使用 repair prompt 自动重试一次，并记录 `retry_attempted=true`。
 

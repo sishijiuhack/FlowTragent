@@ -122,6 +122,28 @@ def needs_llm_retry(summary: Dict[str, Any]) -> bool:
     return summary.get("status") in RETRYABLE_LLM_STATUSES
 
 
+def generate_validated_llm_summary(client: Any, analysis: Dict[str, Any], model: str | None = None) -> Dict[str, Any]:
+    """Generate a structured summary with JSON-mode fallback and repair retry."""
+    raw_summary = client.generate(build_structured_llm_prompt(analysis), json_format=True)
+    structured_summary = parse_and_validate_llm_summary(raw_summary, analysis, model=model)
+    structured_summary["generation_mode"] = "json_format"
+    structured_summary["retry_attempted"] = False
+
+    if structured_summary.get("status") == "empty_response":
+        raw_summary = client.generate(build_structured_llm_prompt(analysis), json_format=False)
+        structured_summary = parse_and_validate_llm_summary(raw_summary, analysis, model=model)
+        structured_summary["generation_mode"] = "plain"
+        structured_summary["retry_attempted"] = False
+
+    if needs_llm_retry(structured_summary):
+        repaired = client.generate(build_llm_repair_prompt(raw_summary, analysis), json_format=False)
+        structured_summary = parse_and_validate_llm_summary(repaired, analysis, model=model)
+        structured_summary["generation_mode"] = "repair_plain"
+        structured_summary["retry_attempted"] = True
+
+    return structured_summary
+
+
 def _extract_json(raw_text: str) -> str:
     text = raw_text.strip()
     fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)

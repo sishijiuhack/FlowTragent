@@ -423,6 +423,24 @@ python scripts/ollama_smoke_test.py --host http://127.0.0.1:11434 --model phi3:m
 ollama_unavailable
 ```
 
+如果模型未拉取，脚本会输出：
+
+```text
+model_unavailable
+```
+
+此时可以先拉取模型：
+
+```bash
+ollama pull phi3:mini
+```
+
+或者使用脚本输出的本地已有模型，例如：
+
+```bash
+python scripts/ollama_smoke_test.py --host http://127.0.0.1:11434 --model qwen2.5-coder:1.5b-base
+```
+
 如果 Ollama 可用，脚本会生成 demo PCAP、运行 FlowTragent，并输出：
 
 ```text

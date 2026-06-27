@@ -56,10 +56,14 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
         lines.extend(["", "## LLM Structured Summary"])
         lines.append(f"- Schema: `{llm_structured.get('schema_version', 'unknown')}`")
         lines.append(f"- Status: `{llm_structured.get('status', 'unknown')}`")
+        if llm_structured.get("generation_mode"):
+            lines.append(f"- Generation Mode: `{llm_structured.get('generation_mode')}`")
         if "retry_attempted" in llm_structured:
             lines.append(f"- Retry Attempted: `{llm_structured.get('retry_attempted')}`")
         if llm_structured.get("model"):
             lines.append(f"- Model: `{llm_structured.get('model')}`")
+        if llm_structured.get("available_models"):
+            lines.append(f"- Available Models: {', '.join(llm_structured.get('available_models', []))}")
         if llm_structured.get("deterministic_verdict"):
             lines.append(f"- Deterministic Verdict: `{llm_structured.get('deterministic_verdict')}`")
         if llm_structured.get("summary"):
