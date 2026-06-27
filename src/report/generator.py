@@ -213,6 +213,22 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
             for item in impact.get("missing_evidence", []):
                 lines.append(f"  - {item}")
 
+    evidence_graph = analysis.get("evidence_graph") or {}
+    graph_edges = evidence_graph.get("edges") or []
+    if graph_edges:
+        lines.extend(["", "## Evidence Graph"])
+        lines.extend(["| Source | Relation | Target | Confidence | Reason |", "| --- | --- | --- | --- | --- |"])
+        for item in graph_edges[:30]:
+            lines.append(
+                "| {source} | {relation} | {target} | {confidence} | {reason} |".format(
+                    source=item.get("source_id", ""),
+                    relation=_escape_table(item.get("relation", "")),
+                    target=item.get("target_id", ""),
+                    confidence=item.get("confidence", ""),
+                    reason=_escape_table(str(item.get("reason") or "")[:160]),
+                )
+            )
+
     if agent_findings:
         reasoning = agent_findings.get("agent_reasoning") or []
         evidence_pack = agent_findings.get("evidence_pack") or []

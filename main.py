@@ -13,6 +13,7 @@ from src.agent.llm_summary import (
 from src.agent.orchestrator import run_agent_layer
 from src.correlation.attack_chain import detect_attack_stages
 from src.correlation.c2_detector import detect_c2
+from src.correlation.evidence_graph import build_evidence_graph
 from src.correlation.impact_analyzer import assess_impact
 from src.correlation.source_tracker import summarize_sources
 from src.correlation.timeline import build_timeline
@@ -142,6 +143,7 @@ def _analyze(
         analysis["c2_findings"] = c2_findings
         analysis["source_summary"] = summarize_sources(evidence_events)
         analysis["impact_assessment"] = assess_impact(http_events, attack_chain, c2_findings, candidates)
+        analysis["evidence_graph"] = build_evidence_graph(evidence_events, attack_chain, c2_findings)
     analysis["agent_findings"] = run_agent_layer(analysis)
     ollama_enabled = enable_ollama or bool(config.get("ollama", {}).get("enabled"))
     if ollama_enabled:

@@ -550,3 +550,64 @@ python main.py \
 python tests/test_log_parser.py
 python tests/test_multisource_pipeline.py
 ```
+
+## 15. Evidence Graph 证据关联图
+
+FlowTragent 现在会在 JSON 报告中输出：
+
+```text
+evidence_graph.nodes
+evidence_graph.edges
+```
+
+Markdown 报告中对应章节为：
+
+```text
+## Evidence Graph
+```
+
+当前支持的关系类型：
+
+```text
+same_asset
+```
+
+表示网络事件和 endpoint/process 事件指向同一资产，例如 PCAP 目标 IP 与 endpoint log 的 host/host_ip 一致。
+
+```text
+temporal_sequence
+```
+
+表示两个证据事件在时间线上相邻，默认 600 秒窗口内会建立顺序关系。
+
+```text
+process_external_connection
+```
+
+表示 endpoint/process 日志中出现 `curl/wget/powershell/certutil/bash -c` 等命令，并带有远端目的地址。
+
+```text
+process_to_network_destination
+```
+
+表示 endpoint/process 日志中的远端目的地址与网络证据中的目的地址一致。
+
+```text
+c2_sequence:HTTP Beacon / DNS C2 / TCP Beacon
+```
+
+表示 C2 detector 识别出的周期性通信证据序列。
+
+示例 JSON edge：
+
+```json
+{
+  "source_id": "pkt-1",
+  "target_id": "endpoint1-1",
+  "relation": "same_asset",
+  "confidence": "high",
+  "reason": "Network target/source matches endpoint host or host IP."
+}
+```
+
+作用：Evidence Graph 用于把 `pkt-1 -> endpoint1-1 -> dnslog1-1` 这类跨源关系显式化，后续可以直接用于攻击链可视化、Graph RAG 或更细粒度 Agent 推理。

@@ -47,8 +47,15 @@ def main() -> None:
     assert analysis["impact_assessment"]["confidence"] == "high"
     evidence_ids = {item["evidence_id"] for item in analysis["agent_findings"]["evidence_pack"]}
     assert "endpoint1-1" in evidence_ids
+    relations = {item["relation"] for item in analysis["evidence_graph"]["edges"]}
+    assert "same_asset" in relations
+    assert "temporal_sequence" in relations
+    assert "process_external_connection" in relations
+    graph_nodes = {item["node_id"] for item in analysis["evidence_graph"]["nodes"]}
+    assert "external:203.0.113.50:8080" in graph_nodes
     report = report_path.read_text(encoding="utf-8")
     assert "endpoint1-1" in report
+    assert "## Evidence Graph" in report
     assert "Likely successful exploitation" in report
 
 
