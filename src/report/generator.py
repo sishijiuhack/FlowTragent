@@ -217,6 +217,8 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
     graph_edges = evidence_graph.get("edges") or []
     if graph_edges:
         lines.extend(["", "## Evidence Graph"])
+        if evidence_graph.get("mermaid"):
+            lines.extend(["```mermaid", evidence_graph.get("mermaid", ""), "```", ""])
         lines.extend(["| Source | Relation | Target | Confidence | Reason |", "| --- | --- | --- | --- | --- |"])
         for item in graph_edges[:30]:
             lines.append(

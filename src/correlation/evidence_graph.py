@@ -43,10 +43,35 @@ def build_evidence_graph(
     edges.extend(_endpoint_outbound_edges(events))
     edges = _dedupe_edges(edges)
     nodes.extend(_external_nodes(edges, nodes))
-    return {
+    graph = {
         "nodes": [asdict(node) for node in nodes],
         "edges": [asdict(edge) for edge in edges],
     }
+    graph["mermaid"] = render_mermaid_graph(graph)
+    return graph
+
+
+def render_mermaid_graph(graph: dict[str, Any], max_edges: int = 40) -> str:
+    """Render an evidence graph as a Mermaid flowchart."""
+    nodes = {str(node.get("node_id")): node for node in graph.get("nodes", []) if node.get("node_id")}
+    lines = ["flowchart TD"]
+    emitted_nodes = set()
+    for edge in graph.get("edges", [])[:max_edges]:
+        source_id = str(edge.get("source_id") or "")
+        target_id = str(edge.get("target_id") or "")
+        if not source_id or not target_id:
+            continue
+        for node_id in (source_id, target_id):
+            if node_id in emitted_nodes:
+                continue
+            node = nodes.get(node_id, {"node_id": node_id, "node_type": "External", "label": node_id})
+            lines.append(f"  {_mermaid_id(node_id)}[{_mermaid_label(node)}]")
+            emitted_nodes.add(node_id)
+        relation = _mermaid_text(str(edge.get("relation") or "related"))
+        lines.append(f"  {_mermaid_id(source_id)} -->|{relation}| {_mermaid_id(target_id)}")
+    if len(lines) == 1:
+        lines.append("  empty[No evidence graph edges]")
+    return "\n".join(lines)
 
 
 def _event_nodes(events: list[NetworkEvent]) -> list[EvidenceNode]:
@@ -227,6 +252,25 @@ def _external_nodes(edges: list[EvidenceEdge], nodes: list[EvidenceNode]) -> lis
                 )
             )
     return external
+
+
+def _mermaid_id(node_id: str) -> str:
+    safe = "".join(char if char.isalnum() else "_" for char in node_id)
+    if not safe or safe[0].isdigit():
+        safe = f"n_{safe}"
+    return safe
+
+
+def _mermaid_label(node: dict[str, Any]) -> str:
+    node_id = str(node.get("node_id") or "")
+    node_type = str(node.get("node_type") or "Evidence")
+    label = str(node.get("label") or node_id)
+    compact = f"{node_id}\\n{node_type}\\n{label[:80]}"
+    return f'"{_mermaid_text(compact)}"'
+
+
+def _mermaid_text(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', "'").replace("|", "/").replace("\n", "\\n")
 
 
 def _endpoint(ip: str | None, port: int | None) -> str | None:

