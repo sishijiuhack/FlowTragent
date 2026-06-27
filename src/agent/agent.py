@@ -21,6 +21,7 @@ class TraceAgent:
         cve_scores: Dict[str, float] = {}
         evidence: Dict[str, str] = {}
         details: Dict[str, Dict] = {}
+        cve_evidence: Dict[str, List[Dict]] = {}
         for item in candidates:
             cve = item.get("cve", "UNKNOWN")
             score = float(item.get("final_score", item.get("score", 0.0)))
@@ -28,6 +29,20 @@ class TraceAgent:
             evidence.setdefault(cve, item.get("evidence", ""))
             if cve not in details or score >= float(details[cve].get("final_score", details[cve].get("score", 0.0))):
                 details[cve] = item
+            cve_evidence.setdefault(cve, []).append(
+                {
+                    "event_id": item.get("event_id"),
+                    "rank": item.get("rank"),
+                    "score": round(score, 4),
+                    "retrieval_score": item.get("retrieval_score"),
+                    "rule_bonus": item.get("rule_bonus", 0.0),
+                    "signals": item.get("signals", []),
+                    "neighbor_id": item.get("neighbor_id") or item.get("source_id"),
+                    "neighbor_payload": item.get("neighbor_payload") or item.get("evidence", ""),
+                    "neighbor_labels": item.get("neighbor_labels", []),
+                    "label_votes": item.get("label_votes", {}),
+                }
+            )
 
         ranked = [
             {
@@ -40,6 +55,18 @@ class TraceAgent:
                 "signals": details.get(cve, {}).get("signals", []),
                 "neighbor_id": details.get(cve, {}).get("neighbor_id"),
                 "neighbor_labels": details.get(cve, {}).get("neighbor_labels", []),
+                "label_votes": details.get(cve, {}).get("label_votes", {}),
+                "event_ids": sorted(
+                    {
+                        str(item.get("event_id"))
+                        for item in cve_evidence.get(cve, [])
+                        if item.get("event_id")
+                    }
+                ),
+                "evidence_details": sorted(
+                    cve_evidence.get(cve, []),
+                    key=lambda item: (item.get("event_id") or "", item.get("rank") or 0),
+                ),
                 "evidence": evidence.get(cve, ""),
             }
             for cve, score in sorted(cve_scores.items(), key=lambda row: row[1], reverse=True)

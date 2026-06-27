@@ -59,6 +59,27 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
     else:
         lines.append("- No CVE candidate passed retrieval.")
 
+    cve_evidence_rows = []
+    for item in top_cves[:5]:
+        for detail in (item.get("evidence_details") or [])[:3]:
+            cve_evidence_rows.append((item, detail))
+    if cve_evidence_rows:
+        lines.extend(["", "## CVE Evidence"])
+        lines.extend(["| CVE | Event | Neighbor | Score | Labels | Payload |", "| --- | --- | --- | ---: | --- | --- |"])
+        for item, detail in cve_evidence_rows:
+            payload = str(detail.get("neighbor_payload") or item.get("evidence") or "")[:140]
+            labels = ", ".join(detail.get("neighbor_labels", []))
+            lines.append(
+                "| {cve} | {event_id} | {neighbor} | {score} | {labels} | `{payload}` |".format(
+                    cve=item.get("cve", ""),
+                    event_id=detail.get("event_id") or "",
+                    neighbor=detail.get("neighbor_id") or "",
+                    score=_fmt(detail.get("score")),
+                    labels=_escape_table(labels),
+                    payload=_escape_table(payload),
+                )
+            )
+
     lines.extend(["", "## Timeline"])
     for item in analysis.get("timeline", []):
         lines.append(f"{item.get('step')}. {item.get('event')}")

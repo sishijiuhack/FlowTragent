@@ -59,12 +59,22 @@ class VulnerabilityJudgeAgent:
         score = float(top.get("score", 0.0))
         confidence = "high" if top.get("rule_confirmed") else "medium" if score >= 0.5 else "low"
         signals = ", ".join(top.get("signals", [])) or "retrieval similarity"
+        evidence_ids = [str(item) for item in top.get("event_ids", []) if item]
+        evidence_details = top.get("evidence_details", [])
+        neighbor_ids = sorted({str(item.get("neighbor_id")) for item in evidence_details if item.get("neighbor_id")})
+        label_votes = top.get("label_votes", {})
+        evidence_bits = [f"signals: {signals}"]
+        if neighbor_ids:
+            evidence_bits.append(f"nearest samples: {', '.join(neighbor_ids[:5])}")
+        if label_votes:
+            votes = ", ".join(f"{label}={count}" for label, count in sorted(label_votes.items())[:5])
+            evidence_bits.append(f"label votes: {votes}")
         return _finding(
             self.name,
             f"Top CVE candidate is {top.get('cve')} with final score {score:.4f}.",
             confidence,
-            [str(top.get("event_id"))] if top.get("event_id") else [],
-            f"Candidate ranking is based on NOVA-F retrieval plus rule signals: {signals}.",
+            evidence_ids,
+            f"Candidate ranking is based on NOVA-F retrieval plus rule evidence; {'; '.join(evidence_bits)}.",
         )
 
 
