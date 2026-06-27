@@ -117,6 +117,8 @@ def write_report(analysis: dict, output_dir: str | Path = "reports") -> Path:
                 lines.append(f"  - Top URIs: {_format_pairs(item.get('top_uris', []))}")
             if item.get("top_user_agents"):
                 lines.append(f"  - Top User-Agents: {_format_pairs(item.get('top_user_agents', []))}")
+            if item.get("top_dns_queries"):
+                lines.append(f"  - Top DNS Queries: {_format_pairs(item.get('top_dns_queries', []))}")
 
     impact = analysis.get("impact_assessment")
     if impact:

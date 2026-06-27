@@ -28,6 +28,12 @@ def assess_impact(
             for evidence_id in stage.get("evidence_ids", [])
             if evidence_id
         }
+        | {
+            evidence_id
+            for finding in c2_findings
+            for evidence_id in finding.get("evidence_ids", [])
+            if evidence_id
+        }
     )
 
     high_conf_c2 = [finding for finding in c2_findings if finding.get("confidence") == "high"]
@@ -37,10 +43,14 @@ def assess_impact(
         verdict = "Likely successful exploitation with C2 indicators"
         confidence = "high"
         reasoning = "Post-exploitation behavior and high-confidence C2/beacon communication were both detected."
-    elif c2_findings:
+    elif c2_findings and ("Exploitation" in stages or top_cves):
         verdict = "Possible successful exploitation with C2 indicators"
         confidence = "medium"
-        reasoning = "Suspicious C2/beacon communication was detected after exploit-related traffic."
+        reasoning = "Suspicious C2/beacon communication was detected with exploit-related traffic or CVE evidence."
+    elif c2_findings:
+        verdict = "Possible compromise with C2 indicators"
+        confidence = "medium" if high_conf_c2 else "low"
+        reasoning = "Suspicious C2/beacon communication was detected, but the provided traffic does not show the initial exploitation path."
     elif high_conf_post_exploit:
         verdict = "Likely successful exploitation"
         confidence = "high"

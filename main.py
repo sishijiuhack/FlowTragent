@@ -16,7 +16,7 @@ from src.core.nova_client import NovaClient
 from src.core.ollama_client import OllamaClient
 from src.core.settings import load_config
 from src.parser.capture import capture_with_tcpdump
-from src.parser.pcap_parser import parse_pcap_events, pcap_to_csv
+from src.parser.pcap_parser import parse_network_events, parse_pcap_events, pcap_to_csv
 from src.rag.knowledge_base import KnowledgeBase
 from src.report.generator import write_report
 
@@ -54,11 +54,12 @@ def run_pcap(
     enable_ollama: bool,
 ) -> Path:
     csv_path = Path(config["paths"]["csv_dir"]) / f"{pcap_path.stem}.csv"
-    extracted = pcap_to_csv(str(pcap_path), str(csv_path))
-    if extracted == 0:
-        raise RuntimeError(f"No HTTP/TCP payloads were extracted from {pcap_path}")
-
+    network_events = parse_network_events(str(pcap_path))
     events = parse_pcap_events(str(pcap_path))
+    extracted = pcap_to_csv(str(pcap_path), str(csv_path))
+    if not network_events:
+        raise RuntimeError(f"No supported network events were extracted from {pcap_path}")
+
     payloads = [event.payload_clean for event in events if event.payload_clean.strip()]
 
     nova = _build_nova(config, force_demo_index)
@@ -78,6 +79,7 @@ def run_pcap(
         source_file=str(pcap_path),
         csv_file=str(csv_path),
         events=events,
+        network_events=network_events,
     )
     return write_report(analysis, output_dir=output_dir)
 
@@ -99,6 +101,7 @@ def _analyze(
     source_file: str | None = None,
     csv_file: str | None = None,
     events: list | None = None,
+    network_events: list | None = None,
 ) -> dict:
     agent = TraceAgent()
     rag_context = []
@@ -123,15 +126,17 @@ def _analyze(
         rag_context=rag_context,
         llm_summary=llm_summary,
     )
-    if events:
-        attack_chain = detect_attack_stages(events, candidates)
-        c2_findings = detect_c2(events)
-        analysis["structured_events"] = [event.to_dict() for event in events]
-        analysis["attack_timeline"] = build_timeline(events)
+    evidence_events = network_events or events or []
+    if evidence_events:
+        http_events = events or [event for event in evidence_events if getattr(event, "protocol", None) == "HTTP"]
+        attack_chain = detect_attack_stages(http_events, candidates)
+        c2_findings = detect_c2(evidence_events)
+        analysis["structured_events"] = [event.to_dict() for event in evidence_events]
+        analysis["attack_timeline"] = build_timeline(evidence_events)
         analysis["attack_chain"] = attack_chain
         analysis["c2_findings"] = c2_findings
-        analysis["source_summary"] = summarize_sources(events)
-        analysis["impact_assessment"] = assess_impact(events, attack_chain, c2_findings, candidates)
+        analysis["source_summary"] = summarize_sources(evidence_events)
+        analysis["impact_assessment"] = assess_impact(http_events, attack_chain, c2_findings, candidates)
     return analysis
 
 

@@ -374,3 +374,28 @@ FLOWTRAGENT_OFFLINE=1 python main.py --mode pcap --input data/pcap/demo_attack.p
 OLLAMA_HOST=0.0.0.0:11434 ollama serve
 curl http://127.0.0.1:11434/api/tags
 ```
+
+## 12. DNS/TCP C2 样本验证
+
+生成并分析 DNS tunneling + TCP beacon 样本：
+
+```bash
+python tests/make_dns_tcp_c2_pcap.py
+python main.py --mode pcap --input data/pcap/demo_dns_tcp_c2.pcap --demo-index
+```
+
+运行对应回归测试：
+
+```bash
+python tests/test_dns_tcp_c2_pipeline.py
+```
+
+预期报告中应包含：
+
+```text
+DNS C2 / Tunneling
+TCP Beacon
+Possible compromise with C2 indicators
+```
+
+作用：验证 FlowTragent 在没有 HTTP payload 的 PCAP 中，仍能基于 DNS 查询模式和 TCP 周期连接识别疑似 C2 行为，并生成 Markdown/JSON 报告。

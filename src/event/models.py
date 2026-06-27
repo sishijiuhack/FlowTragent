@@ -17,6 +17,10 @@ class NetworkEvent:
     protocol: str
     payload_clean: str
     summary: str
+    raw_size: int | None = None
+    dns_query: str | None = None
+    dns_qtype: str | None = None
+    tcp_flags: str | None = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
