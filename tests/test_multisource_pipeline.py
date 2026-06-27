@@ -64,19 +64,32 @@ def main() -> None:
     assert analysis["evidence_graph"]["paths"]
     assert "endpoint1-1" in analysis["evidence_graph"]["paths"][0]["summary"]
     assert any("Evidence path:" in item for item in analysis["agent_findings"]["key_findings"])
+
     mermaid = analysis["evidence_graph"]["mermaid"]
     assert mermaid.startswith("flowchart TD")
     assert "process_external_connection" in mermaid
+    mermaid_zh = analysis["evidence_graph"]["mermaid_zh"]
+    assert mermaid_zh.startswith("flowchart TD")
+    assert "进程外联" in mermaid_zh
     dot = analysis["evidence_graph"]["dot"]
     assert dot.startswith("digraph FlowTragentEvidence")
     assert "process_external_connection" in dot
+    dot_zh = analysis["evidence_graph"]["dot_zh"]
+    assert dot_zh.startswith("digraph FlowTragentEvidence")
+    assert "进程外联" in dot_zh
+
     report = report_path.read_text(encoding="utf-8")
     assert "endpoint1-1" in report
     assert "## Evidence Graph" in report
     assert "```mermaid" in report
     assert "```graphviz" in report
-    assert "## 中文摘要" in report
-    assert "疑似成功利用并伴随 C2 通信迹象" in report
+
+    zh_report_path = report_path.with_name(f"{report_path.stem}_zh.md")
+    assert zh_report_path.exists()
+    zh_report = zh_report_path.read_text(encoding="utf-8")
+    assert "## 中文摘要" in zh_report
+    assert "疑似成功利用并伴随 C2 通信迹象" in zh_report
+    assert "进程外联" in zh_report
 
 
 if __name__ == "__main__":

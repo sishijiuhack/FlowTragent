@@ -28,30 +28,56 @@ PAGE = """
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>FlowTragent</title>
   <style>
-    :root { color-scheme: light; }
-    body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; color: #18202a; background: #f7f9fc; }
-    main { max-width: 1120px; margin: 0 auto; padding: 28px; }
-    header { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 20px; }
-    h1 { margin: 0; font-size: 28px; }
-    h2 { margin: 0 0 14px; font-size: 18px; }
-    section { margin: 18px 0; padding: 18px; border: 1px solid #d8dee8; border-radius: 8px; background: #fff; }
-    textarea { width: 100%; min-height: 132px; box-sizing: border-box; font-family: Consolas, monospace; font-size: 13px; }
-    input, button { font-size: 14px; padding: 8px; }
-    button { cursor: pointer; border: 1px solid #1f6feb; background: #1f6feb; color: white; border-radius: 6px; }
-    a { color: #0b5cad; text-decoration: none; }
+    :root {
+      color-scheme: light;
+      --bg: #f5f6f8;
+      --panel: #ffffff;
+      --line: #d9dde3;
+      --line-soft: #e8ebef;
+      --text: #171a1f;
+      --muted: #69707a;
+      --ink: #2f3338;
+      --accent: #3f4752;
+      --accent-hover: #222831;
+      --danger: #9f2a2a;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; color: var(--text); background: var(--bg); }
+    main { max-width: 1180px; margin: 0 auto; padding: 24px; }
+    header { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding: 18px 0 20px; border-bottom: 1px solid var(--line); }
+    h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
+    h2 { margin: 0 0 14px; font-size: 16px; }
+    p { margin: 0; }
+    section { margin: 16px 0; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+    textarea { width: 100%; min-height: 136px; resize: vertical; border: 1px solid var(--line); border-radius: 6px; padding: 10px; font-family: Consolas, monospace; font-size: 13px; background: #fbfbfc; color: var(--ink); }
+    input[type="text"], input[name="q"] { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-width: 240px; background: #fff; }
+    input[type="file"] { width: 100%; font-size: 13px; color: var(--muted); }
+    button, .button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 7px 12px; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 6px; font-size: 14px; text-decoration: none; cursor: pointer; }
+    button:hover, .button:hover { background: var(--accent-hover); text-decoration: none; }
+    .button.secondary { color: var(--ink); background: #fff; border-color: var(--line); }
+    .button.secondary:hover { background: #f0f2f4; }
+    .button.danger, button.danger { background: #fff; color: var(--danger); border-color: #d8b8b8; }
+    .button.danger:hover, button.danger:hover { background: #fff5f5; }
+    a { color: #30363d; text-decoration: none; }
     a:hover { text-decoration: underline; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-    .checks { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+    .subtle { color: var(--muted); font-size: 13px; margin-top: 6px; }
+    .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+    .checks { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 13px; margin: 12px 0; }
+    .checks input { vertical-align: middle; }
     .file-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .file-grid label { display: grid; gap: 6px; font-size: 13px; color: #4b5563; }
-    .result { background: #eef6ff; border-color: #bfdbfe; }
+    .file-grid label { display: grid; gap: 7px; padding: 10px; border: 1px solid var(--line-soft); border-radius: 6px; color: var(--muted); font-size: 13px; background: #fbfbfc; }
+    .result { background: #f0f2f4; border-color: #cdd2d8; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
     .report-list { display: grid; gap: 8px; padding: 0; list-style: none; }
-    .report-list li { display: flex; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px; }
-    @media (max-width: 820px) {
-      main { padding: 18px; }
-      header, .grid, .file-grid { display: block; }
+    .report-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 11px 12px; border: 1px solid var(--line-soft); border-radius: 6px; background: #fff; }
+    .report-name { overflow-wrap: anywhere; font-family: Consolas, monospace; font-size: 13px; }
+    .actions { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    @media (max-width: 860px) {
+      main { padding: 16px; }
+      header, .grid, .file-grid, .report-list li, .result { display: block; }
       section { margin: 14px 0; }
-      .file-grid label { margin: 10px 0; }
+      .file-grid label, .actions { margin-top: 10px; }
+      input[type="text"], input[name="q"] { width: 100%; min-width: 0; }
     }
   </style>
 </head>
@@ -60,9 +86,9 @@ PAGE = """
   <header>
     <div>
       <h1>FlowTragent</h1>
-      <div>攻击流量输入 -> 多源证据融合 -> 溯源报告</div>
+      <p class="subtle">攻击流量输入 -> 多源证据融合 -> 中英文溯源报告</p>
     </div>
-    <a href="{{ url_for('index') }}">刷新</a>
+    <a class="button secondary" href="{{ url_for('index') }}">刷新</a>
   </header>
 
   <div class="grid">
@@ -100,39 +126,48 @@ PAGE = """
 
   {% if report %}
   <section class="result">
-    <strong>报告已生成：</strong>
-    <a href="{{ url_for('view_report', filename=report.name) }}">{{ report.name }}</a>
+    <div>
+      <strong>报告已生成</strong>
+      <p class="subtle">{{ report.name }}</p>
+    </div>
+    <div class="actions">
+      <a class="button" href="{{ url_for('view_report', filename=report.name, lang='zh') }}">中文查看</a>
+      <a class="button secondary" href="{{ url_for('view_report', filename=report.name, lang='en') }}">English</a>
+    </div>
   </section>
   {% endif %}
 
   <section>
     <h2>最近报告</h2>
-    <form method="get" action="/" style="margin-bottom: 12px;">
+    <form class="toolbar" method="get" action="/">
       <input name="q" value="{{ q or '' }}" placeholder="按文件名搜索报告">
       <button type="submit">搜索</button>
-      <a href="{{ url_for('export_reports_zip') }}">批量导出 ZIP</a>
+      <a class="button secondary" href="{{ url_for('export_reports_zip') }}">导出 ZIP</a>
     </form>
     {% if reports %}
     <ul class="report-list">
       {% for item in reports %}
       <li>
-        <span>{{ item.name }}</span>
-        <span>
-          <a href="{{ url_for('view_report', filename=item.name) }}">查看图谱</a>
-          |
-          <a href="{{ url_for('download_report', filename=item.name) }}">Markdown</a>
-          |
-          <a href="{{ url_for('download_report', filename=item.with_suffix('.json').name) }}">JSON</a>
-          |
-          <form method="post" action="{{ url_for('delete_report', filename=item.name) }}" style="display:inline;" onsubmit="return confirm('确认删除该报告的 Markdown/JSON/DOT/PNG 文件？');">
-            <button type="submit" style="padding:3px 6px; background:#b91c1c; border-color:#b91c1c;">删除</button>
+        <span class="report-name">{{ item.name }}</span>
+        <span class="actions">
+          <a class="button" href="{{ url_for('view_report', filename=item.name, lang='zh') }}">中文</a>
+          <a class="button secondary" href="{{ url_for('view_report', filename=item.name, lang='en') }}">English</a>
+          <a class="button secondary" href="{{ url_for('download_report', filename=item.name) }}">MD</a>
+          {% if item.zh_name %}
+          <a class="button secondary" href="{{ url_for('download_report', filename=item.zh_name) }}">中文 MD</a>
+          {% endif %}
+          {% if item.json_name %}
+          <a class="button secondary" href="{{ url_for('download_report', filename=item.json_name) }}">JSON</a>
+          {% endif %}
+          <form method="post" action="{{ url_for('delete_report', filename=item.name) }}" style="display:inline;" onsubmit="return confirm('确认删除该报告的 Markdown/JSON/DOT/PNG/SVG 文件？');">
+            <button class="danger" type="submit">删除</button>
           </form>
         </span>
       </li>
       {% endfor %}
     </ul>
     {% else %}
-    <p>暂无报告。</p>
+    <p class="subtle">暂无报告。</p>
     {% endif %}
   </section>
 </main>
@@ -143,65 +178,93 @@ PAGE = """
 
 REPORT_PAGE = """
 <!doctype html>
-<html lang="zh-CN">
+<html lang="{{ 'zh-CN' if lang == 'zh' else 'en' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ filename }} - FlowTragent</title>
   <style>
-    body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; color: #18202a; background: #f7f9fc; }
-    main { max-width: 1180px; margin: 0 auto; padding: 28px; }
-    h1 { font-size: 22px; margin: 0 0 16px; overflow-wrap: anywhere; }
-    section { margin: 18px 0; padding: 18px; border: 1px solid #d8dee8; border-radius: 8px; background: #fff; }
-    a { color: #0b5cad; text-decoration: none; }
+    :root {
+      color-scheme: light;
+      --bg: #f5f6f8;
+      --panel: #ffffff;
+      --line: #d9dde3;
+      --line-soft: #e8ebef;
+      --text: #171a1f;
+      --muted: #69707a;
+      --accent: #3f4752;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; color: var(--text); background: var(--bg); }
+    main { max-width: 1220px; margin: 0 auto; padding: 24px; }
+    header { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 16px 0 18px; border-bottom: 1px solid var(--line); }
+    h1 { font-size: 20px; margin: 0; overflow-wrap: anywhere; }
+    h2 { margin: 0 0 14px; font-size: 16px; }
+    h3 { margin: 16px 0 8px; font-size: 14px; }
+    section { margin: 16px 0; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+    a { color: #30363d; text-decoration: none; }
     a:hover { text-decoration: underline; }
+    .button { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px; color: #222; background: #fff; text-decoration: none; }
+    .button.active { color: #fff; border-color: var(--accent); background: var(--accent); }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
     .meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-    .meta div { padding: 10px; background: #f3f6fa; border-radius: 6px; }
-    .graph-svg { width: 100%; min-height: 260px; border: 1px solid #e5e7eb; border-radius: 6px; background: white; }
-    pre { overflow: auto; background: #f6f8fa; padding: 12px; border-radius: 6px; }
+    .meta div { padding: 11px; background: #f7f8fa; border: 1px solid var(--line-soft); border-radius: 6px; }
+    .label { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+    .graph-svg { width: 100%; min-height: 300px; border: 1px solid var(--line-soft); border-radius: 6px; background: white; }
+    pre { overflow: auto; background: #f7f8fa; border: 1px solid var(--line-soft); padding: 12px; border-radius: 6px; font-size: 12px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { border-bottom: 1px solid #e5e7eb; padding: 8px; text-align: left; vertical-align: top; }
+    th, td { border-bottom: 1px solid var(--line-soft); padding: 8px; text-align: left; vertical-align: top; }
     code { font-family: Consolas, monospace; }
-    @media (max-width: 820px) { main { padding: 18px; } .meta { grid-template-columns: 1fr; } }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    @media (max-width: 860px) { main { padding: 16px; } header, .meta { display: block; } .meta div, .tabs { margin-top: 10px; } }
   </style>
 </head>
 <body>
 <main>
-  <p><a href="{{ url_for('index') }}">返回首页</a></p>
-  <h1>{{ filename }}</h1>
+  <header>
+    <div>
+      <p><a href="{{ url_for('index') }}">{{ '返回首页' if lang == 'zh' else 'Back to home' }}</a></p>
+      <h1>{{ filename }}</h1>
+    </div>
+    <nav class="tabs">
+      <a class="button {{ 'active' if lang == 'zh' else '' }}" href="{{ url_for('view_report', filename=base_md_name, lang='zh') }}">中文</a>
+      <a class="button {{ 'active' if lang == 'en' else '' }}" href="{{ url_for('view_report', filename=base_md_name, lang='en') }}">English</a>
+    </nav>
+  </header>
+
   <section class="meta">
-    <div><strong>Verdict</strong><br>{{ impact.get("verdict", "N/A") }}</div>
-    <div><strong>Confidence</strong><br>{{ impact.get("confidence", "N/A") }}</div>
-    <div><strong>Payloads</strong><br>{{ analysis.get("payload_count", 0) }}</div>
-    <div><strong>Graph</strong><br>{{ graph.get("nodes", [])|length }} nodes / {{ graph.get("edges", [])|length }} edges</div>
+    <div><div class="label">{{ '结论' if lang == 'zh' else 'Verdict' }}</div>{{ verdict }}</div>
+    <div><div class="label">{{ '置信度' if lang == 'zh' else 'Confidence' }}</div>{{ confidence }}</div>
+    <div><div class="label">Payloads</div>{{ analysis.get("payload_count", 0) }}</div>
+    <div><div class="label">{{ '图谱' if lang == 'zh' else 'Graph' }}</div>{{ graph.get("nodes", [])|length }} nodes / {{ graph.get("edges", [])|length }} edges</div>
   </section>
 
-  {% if graph.get("mermaid") %}
+  {% if graph.get(mermaid_key) %}
   <section>
-    <h2>Evidence Graph</h2>
-    {% if graph.get("dot") %}
-    <object class="graph-svg" data="{{ url_for('graph_svg', filename=json_name) }}" type="image/svg+xml">
-      <pre>{{ graph.get("dot") }}</pre>
+    <h2>{{ '证据图谱' if lang == 'zh' else 'Evidence Graph' }}</h2>
+    {% if graph.get(dot_key) %}
+    <object class="graph-svg" data="{{ url_for('graph_svg', filename=json_name, lang=lang) }}" type="image/svg+xml">
+      <pre>{{ graph.get(dot_key) }}</pre>
     </object>
     {% endif %}
     <h3>Mermaid</h3>
-    <pre>{{ graph.get("mermaid") }}</pre>
+    <pre>{{ graph.get(mermaid_key) }}</pre>
     <h3>Graphviz DOT</h3>
-    <pre>{{ graph.get("dot", "") }}</pre>
+    <pre>{{ graph.get(dot_key, "") }}</pre>
   </section>
   {% endif %}
 
   {% if analysis.get("attack_chain") %}
   <section>
-    <h2>Attack Chain</h2>
+    <h2>{{ '攻击链' if lang == 'zh' else 'Attack Chain' }}</h2>
     <table>
-      <thead><tr><th>Stage</th><th>Technique</th><th>Confidence</th><th>Evidence</th></tr></thead>
+      <thead><tr><th>{{ '阶段' if lang == 'zh' else 'Stage' }}</th><th>{{ '技术' if lang == 'zh' else 'Technique' }}</th><th>{{ '置信度' if lang == 'zh' else 'Confidence' }}</th><th>{{ '证据' if lang == 'zh' else 'Evidence' }}</th></tr></thead>
       <tbody>
       {% for item in analysis.get("attack_chain", []) %}
       <tr>
-        <td>{{ item.get("stage") }}</td>
+        <td>{{ translate_stage(item.get("stage")) if lang == 'zh' else item.get("stage") }}</td>
         <td>{{ item.get("technique") }}</td>
-        <td>{{ item.get("confidence") }}</td>
+        <td>{{ translate_confidence(item.get("confidence")) if lang == 'zh' else item.get("confidence") }}</td>
         <td><code>{{ item.get("evidence_ids", [])|join(", ") }}</code></td>
       </tr>
       {% endfor %}
@@ -212,16 +275,16 @@ REPORT_PAGE = """
 
   {% if graph.get("edges") %}
   <section>
-    <h2>Graph Edges</h2>
+    <h2>{{ '图谱边' if lang == 'zh' else 'Graph Edges' }}</h2>
     <table>
-      <thead><tr><th>Source</th><th>Relation</th><th>Target</th><th>Confidence</th><th>Reason</th></tr></thead>
+      <thead><tr><th>{{ '来源' if lang == 'zh' else 'Source' }}</th><th>{{ '关系' if lang == 'zh' else 'Relation' }}</th><th>{{ '目标' if lang == 'zh' else 'Target' }}</th><th>{{ '置信度' if lang == 'zh' else 'Confidence' }}</th><th>{{ '原因' if lang == 'zh' else 'Reason' }}</th></tr></thead>
       <tbody>
       {% for item in graph.get("edges", [])[:40] %}
       <tr>
         <td><code>{{ item.get("source_id") }}</code></td>
-        <td>{{ item.get("relation") }}</td>
+        <td>{{ translate_relation(item.get("relation")) if lang == 'zh' else item.get("relation") }}</td>
         <td><code>{{ item.get("target_id") }}</code></td>
-        <td>{{ item.get("confidence") }}</td>
+        <td>{{ translate_confidence(item.get("confidence")) if lang == 'zh' else item.get("confidence") }}</td>
         <td>{{ item.get("reason") }}</td>
       </tr>
       {% endfor %}
@@ -230,10 +293,9 @@ REPORT_PAGE = """
   </section>
   {% endif %}
 
-  <section>
-    <a href="{{ url_for('download_report', filename=filename) }}">查看 Markdown</a>
-    |
-    <a href="{{ url_for('download_report', filename=json_name) }}">查看 JSON</a>
+  <section class="actions">
+    <a class="button active" href="{{ url_for('download_report', filename=display_md_name) }}">{{ '下载当前 Markdown' if lang == 'zh' else 'Download current Markdown' }}</a>
+    <a class="button" href="{{ url_for('download_report', filename=json_name) }}">JSON</a>
   </section>
 </main>
 </body>
@@ -292,21 +354,35 @@ def analyze_pcap():
 
 @app.get("/view-report/<path:filename>")
 def view_report(filename: str):
+    lang = "zh" if request.args.get("lang") == "zh" else "en"
     safe_name = secure_filename(filename)
     if not safe_name.endswith(".md"):
         return redirect(url_for("index"))
     report_dir = Path(CONFIG["paths"]["report_dir"])
-    json_path = report_dir / safe_name.replace(".md", ".json")
+    base_md_name = _base_md_name(safe_name)
+    json_path = report_dir / base_md_name.replace(".md", ".json")
     if not json_path.exists():
         return redirect(url_for("download_report", filename=safe_name))
     analysis = json.loads(json_path.read_text(encoding="utf-8"))
+    impact = analysis.get("impact_assessment") or {}
+    display_md_name = _localized_md_name(base_md_name, lang)
     return render_template_string(
         REPORT_PAGE,
-        filename=safe_name,
+        filename=display_md_name,
+        display_md_name=display_md_name,
+        base_md_name=base_md_name,
         json_name=json_path.name,
         analysis=analysis,
-        impact=analysis.get("impact_assessment") or {},
+        impact=impact,
+        verdict=_impact_verdict(impact, lang),
+        confidence=_confidence_label(impact.get("confidence"), lang),
         graph=analysis.get("evidence_graph") or {},
+        lang=lang,
+        mermaid_key="mermaid_zh" if lang == "zh" else "mermaid",
+        dot_key="dot_zh" if lang == "zh" else "dot",
+        translate_relation=_relation_label,
+        translate_confidence=lambda value: _confidence_label(value, "zh"),
+        translate_stage=_stage_label,
     )
 
 
@@ -319,9 +395,9 @@ def download_report(filename: str):
 def delete_report(filename: str):
     safe_name = secure_filename(filename)
     report_dir = Path(CONFIG["paths"]["report_dir"])
-    stem = Path(safe_name).stem
-    for suffix in (".md", ".json", ".dot", ".png", ".svg"):
-        target = report_dir / f"{stem}{suffix}"
+    base = Path(_base_md_name(safe_name)).stem
+    for suffix in (".md", "_zh.md", ".json", ".dot", "_zh.dot", ".png", ".svg"):
+        target = report_dir / f"{base}{suffix}"
         if target.exists() and target.resolve().parent == report_dir.resolve():
             target.unlink()
     return redirect(url_for("index"))
@@ -341,12 +417,14 @@ def export_reports_zip():
 
 @app.get("/graph-svg/<path:filename>")
 def graph_svg(filename: str):
+    lang = "zh" if request.args.get("lang") == "zh" else "en"
     safe_name = secure_filename(filename)
     json_path = Path(CONFIG["paths"]["report_dir"]) / safe_name
     if not json_path.exists():
         return Response("Report JSON not found.", status=404, mimetype="text/plain")
     analysis = json.loads(json_path.read_text(encoding="utf-8"))
-    dot_text = (analysis.get("evidence_graph") or {}).get("dot")
+    dot_key = "dot_zh" if lang == "zh" else "dot"
+    dot_text = (analysis.get("evidence_graph") or {}).get(dot_key) or (analysis.get("evidence_graph") or {}).get("dot")
     if not dot_text:
         return Response("Report does not contain evidence_graph.dot.", status=404, mimetype="text/plain")
     dot_bin = shutil.which("dot")
@@ -364,14 +442,29 @@ def _checked(name: str) -> bool:
     return request.form.get(name) == "on"
 
 
-def _recent_reports(limit: int = 12, query: str = "") -> list[Path]:
+def _recent_reports(limit: int = 12, query: str = "") -> list[dict[str, str]]:
     report_dir = Path(CONFIG["paths"]["report_dir"])
     if not report_dir.exists():
         return []
-    reports = sorted(report_dir.glob("*.md"), key=lambda path: path.stat().st_mtime, reverse=True)
+    reports = [
+        path
+        for path in sorted(report_dir.glob("*.md"), key=lambda item: item.stat().st_mtime, reverse=True)
+        if not path.stem.endswith("_zh")
+    ]
     if query:
         reports = [path for path in reports if query.lower() in path.name.lower()]
-    return reports[:limit]
+    items = []
+    for path in reports[:limit]:
+        zh_path = path.with_name(f"{path.stem}_zh.md")
+        json_path = path.with_suffix(".json")
+        items.append(
+            {
+                "name": path.name,
+                "zh_name": zh_path.name if zh_path.exists() else "",
+                "json_name": json_path.name if json_path.exists() else "",
+            }
+        )
+    return items
 
 
 def _save_optional_logs() -> dict[str, list[str]]:
@@ -387,6 +480,70 @@ def _save_optional_logs() -> dict[str, list[str]]:
         upload.save(path)
         saved[field].append(str(path))
     return saved
+
+
+def _base_md_name(filename: str) -> str:
+    path = Path(filename)
+    if path.stem.endswith("_zh"):
+        return f"{path.stem[:-3]}.md"
+    return path.name
+
+
+def _localized_md_name(base_md_name: str, lang: str) -> str:
+    path = Path(base_md_name)
+    return f"{path.stem}_zh.md" if lang == "zh" else path.name
+
+
+def _impact_verdict(impact: dict, lang: str) -> str:
+    verdict = impact.get("verdict", "Insufficient evidence")
+    if lang != "zh":
+        return verdict
+    return {
+        "Likely successful exploitation with C2 indicators": "疑似成功利用并伴随 C2 通信迹象",
+        "Possible successful exploitation with C2 indicators": "可能成功利用并伴随 C2 通信迹象",
+        "Possible compromise with C2 indicators": "可能存在失陷并伴随 C2 通信迹象",
+        "Likely successful exploitation": "疑似成功利用",
+        "Possible successful exploitation": "可能成功利用",
+        "Likely exploitation attempt with successful HTTP response": "疑似漏洞利用尝试且收到成功 HTTP 响应",
+        "Likely exploitation attempt": "疑似漏洞利用尝试",
+        "Possible exploitation attempt": "可能的漏洞利用尝试",
+        "Reconnaissance or probing": "侦察或探测行为",
+        "Insufficient evidence": "证据不足",
+    }.get(verdict, verdict)
+
+
+def _confidence_label(value: str | None, lang: str) -> str:
+    if lang != "zh":
+        return value or "low"
+    return {"high": "高", "medium": "中", "low": "低"}.get(str(value or "").lower(), value or "低")
+
+
+def _stage_label(value: str | None) -> str:
+    return {
+        "Reconnaissance": "侦察",
+        "Exploitation": "漏洞利用",
+        "Command Execution": "命令执行",
+        "Payload Delivery": "载荷投递",
+        "C2": "C2 通信",
+        "Persistence": "持久化",
+        "Impact": "影响",
+    }.get(value or "", value or "")
+
+
+def _relation_label(value: str | None) -> str:
+    relation = value or ""
+    mapping = {
+        "same_asset": "同一资产",
+        "temporal_sequence": "时间顺序",
+        "process_external_connection": "进程外联",
+        "process_to_network_destination": "进程到网络目的地",
+        "dns_context_for_process": "DNS 与进程上下文",
+    }
+    if relation.startswith("c2_sequence:"):
+        return relation.replace("c2_sequence:", "C2 通信序列:")
+    if relation.startswith("same_stage:"):
+        return relation.replace("same_stage:", "同一攻击阶段:")
+    return mapping.get(relation, relation)
 
 
 if __name__ == "__main__":

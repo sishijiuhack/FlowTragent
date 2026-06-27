@@ -48,8 +48,10 @@ def build_evidence_graph(
         "edges": [asdict(edge) for edge in edges],
     }
     graph["paths"] = extract_key_paths(graph)
-    graph["mermaid"] = render_mermaid_graph(graph)
-    graph["dot"] = render_dot_graph(graph)
+    graph["mermaid"] = render_mermaid_graph(graph, language="en")
+    graph["mermaid_zh"] = render_mermaid_graph(graph, language="zh")
+    graph["dot"] = render_dot_graph(graph, language="en")
+    graph["dot_zh"] = render_dot_graph(graph, language="zh")
     return graph
 
 
@@ -115,7 +117,7 @@ def _path_summary(nodes: list[str], relations: list[str]) -> str:
     return " ".join(parts)
 
 
-def render_mermaid_graph(graph: dict[str, Any], max_edges: int = 40) -> str:
+def render_mermaid_graph(graph: dict[str, Any], max_edges: int = 40, language: str = "en") -> str:
     """Render an evidence graph as a Mermaid flowchart."""
     nodes = {str(node.get("node_id")): node for node in graph.get("nodes", []) if node.get("node_id")}
     lines = ["flowchart TD"]
@@ -129,16 +131,16 @@ def render_mermaid_graph(graph: dict[str, Any], max_edges: int = 40) -> str:
             if node_id in emitted_nodes:
                 continue
             node = nodes.get(node_id, {"node_id": node_id, "node_type": "External", "label": node_id})
-            lines.append(f"  {_mermaid_id(node_id)}[{_mermaid_label(node)}]")
+            lines.append(f"  {_mermaid_id(node_id)}[{_mermaid_label(node, language=language)}]")
             emitted_nodes.add(node_id)
-        relation = _mermaid_text(str(edge.get("relation") or "related"))
+        relation = _mermaid_text(_relation_label(str(edge.get("relation") or "related"), language=language))
         lines.append(f"  {_mermaid_id(source_id)} -->|{relation}| {_mermaid_id(target_id)}")
     if len(lines) == 1:
-        lines.append("  empty[No evidence graph edges]")
+        lines.append("  empty[没有证据图谱边]" if language == "zh" else "  empty[No evidence graph edges]")
     return "\n".join(lines)
 
 
-def render_dot_graph(graph: dict[str, Any], max_edges: int = 80) -> str:
+def render_dot_graph(graph: dict[str, Any], max_edges: int = 80, language: str = "en") -> str:
     """Render an evidence graph as Graphviz DOT."""
     nodes = {str(node.get("node_id")): node for node in graph.get("nodes", []) if node.get("node_id")}
     lines = [
@@ -158,13 +160,13 @@ def render_dot_graph(graph: dict[str, Any], max_edges: int = 80) -> str:
             if node_id in emitted_nodes:
                 continue
             node = nodes.get(node_id, {"node_id": node_id, "node_type": "External", "label": node_id})
-            lines.append(f'  "{_dot_escape(node_id)}" [label="{_dot_label(node)}"];')
+            lines.append(f'  "{_dot_escape(node_id)}" [label="{_dot_label(node, language=language)}"];')
             emitted_nodes.add(node_id)
         lines.append(
             '  "{source}" -> "{target}" [label="{relation}", color="{color}"];'.format(
                 source=_dot_escape(source_id),
                 target=_dot_escape(target_id),
-                relation=_dot_escape(str(edge.get("relation") or "related")),
+                relation=_dot_escape(_relation_label(str(edge.get("relation") or "related"), language=language)),
                 color=_edge_color(str(edge.get("confidence") or "")),
             )
         )
@@ -359,9 +361,9 @@ def _mermaid_id(node_id: str) -> str:
     return safe
 
 
-def _mermaid_label(node: dict[str, Any]) -> str:
+def _mermaid_label(node: dict[str, Any], language: str = "en") -> str:
     node_id = str(node.get("node_id") or "")
-    node_type = str(node.get("node_type") or "Evidence")
+    node_type = _node_type_label(str(node.get("node_type") or "Evidence"), language=language)
     label = str(node.get("label") or node_id)
     compact = f"{node_id}\\n{node_type}\\n{label[:80]}"
     return f'"{_mermaid_text(compact)}"'
@@ -371,11 +373,43 @@ def _mermaid_text(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', "'").replace("|", "/").replace("\n", "\\n")
 
 
-def _dot_label(node: dict[str, Any]) -> str:
+def _dot_label(node: dict[str, Any], language: str = "en") -> str:
     node_id = str(node.get("node_id") or "")
-    node_type = str(node.get("node_type") or "Evidence")
+    node_type = _node_type_label(str(node.get("node_type") or "Evidence"), language=language)
     label = str(node.get("label") or node_id)[:90]
     return _dot_escape(f"{node_id}\\n{node_type}\\n{label}")
+
+
+def _node_type_label(node_type: str, language: str) -> str:
+    if language != "zh":
+        return node_type
+    return {
+        "HTTP": "HTTP流量",
+        "DNS": "DNS查询",
+        "TCP": "TCP连接",
+        "ENDPOINT": "终端日志",
+        "ExternalDestination": "外部目的地",
+        "Evidence": "证据",
+        "External": "外部节点",
+    }.get(node_type, node_type)
+
+
+def _relation_label(relation: str, language: str) -> str:
+    if language != "zh":
+        return relation
+    mapping = {
+        "same_asset": "同一资产",
+        "temporal_sequence": "时间顺序",
+        "process_external_connection": "进程外联",
+        "process_to_network_destination": "进程到网络目的地",
+        "dns_context_for_process": "DNS与进程上下文",
+        "related": "关联",
+    }
+    if relation.startswith("c2_sequence:"):
+        return relation.replace("c2_sequence:", "C2通信序列:")
+    if relation.startswith("same_stage:"):
+        return relation.replace("same_stage:", "同一攻击阶段:")
+    return mapping.get(relation, relation)
 
 
 def _dot_escape(value: str) -> str:
