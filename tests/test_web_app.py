@@ -73,6 +73,9 @@ def main() -> None:
     assert "Graphviz DOT" in body_en
     assert "process_external_connection" in body_en
     assert "English" in body_en
+    assert 'class="mermaid"' in body_en
+    assert "mermaid.initialize" in body_en
+    assert "Show Mermaid / DOT source" in body_en
 
     detail_zh = client.get(f"/view-report/{md_name}?lang=zh")
     body_zh = detail_zh.get_data(as_text=True)
@@ -80,6 +83,7 @@ def main() -> None:
     assert "证据图谱" in body_zh
     assert "进程外联" in body_zh
     assert "疑似成功利用" in body_zh
+    assert "查看 Mermaid / DOT 源码" in body_zh
 
     svg_en = client.get(f"/graph-svg/{json_path.name}?lang=en")
     assert svg_en.status_code == 200

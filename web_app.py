@@ -211,6 +211,10 @@ REPORT_PAGE = """
     .meta div { padding: 11px; background: #f7f8fa; border: 1px solid var(--line-soft); border-radius: 6px; }
     .label { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
     .graph-svg { width: 100%; min-height: 300px; border: 1px solid var(--line-soft); border-radius: 6px; background: white; }
+    .mermaid-panel { overflow: auto; border: 1px solid var(--line-soft); border-radius: 6px; background: #fff; padding: 14px; }
+    .mermaid { min-width: 520px; }
+    details { margin-top: 12px; }
+    summary { cursor: pointer; color: var(--muted); font-size: 13px; }
     pre { overflow: auto; background: #f7f8fa; border: 1px solid var(--line-soft); padding: 12px; border-radius: 6px; font-size: 12px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { border-bottom: 1px solid var(--line-soft); padding: 8px; text-align: left; vertical-align: top; }
@@ -242,15 +246,24 @@ REPORT_PAGE = """
   {% if graph.get(mermaid_key) %}
   <section>
     <h2>{{ '证据图谱' if lang == 'zh' else 'Evidence Graph' }}</h2>
+    <div class="mermaid-panel">
+      <div class="mermaid">
+{{ graph.get(mermaid_key) }}
+      </div>
+    </div>
     {% if graph.get(dot_key) %}
+    <h3>Graphviz SVG</h3>
     <object class="graph-svg" data="{{ url_for('graph_svg', filename=json_name, lang=lang) }}" type="image/svg+xml">
       <pre>{{ graph.get(dot_key) }}</pre>
     </object>
     {% endif %}
-    <h3>Mermaid</h3>
-    <pre>{{ graph.get(mermaid_key) }}</pre>
-    <h3>Graphviz DOT</h3>
-    <pre>{{ graph.get(dot_key, "") }}</pre>
+    <details>
+      <summary>{{ '查看 Mermaid / DOT 源码' if lang == 'zh' else 'Show Mermaid / DOT source' }}</summary>
+      <h3>Mermaid</h3>
+      <pre>{{ graph.get(mermaid_key) }}</pre>
+      <h3>Graphviz DOT</h3>
+      <pre>{{ graph.get(dot_key, "") }}</pre>
+    </details>
   </section>
   {% endif %}
 
@@ -298,6 +311,27 @@ REPORT_PAGE = """
     <a class="button" href="{{ url_for('download_report', filename=json_name) }}">JSON</a>
   </section>
 </main>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    securityLevel: "loose",
+    theme: "base",
+    themeVariables: {
+      primaryColor: "#f7f8fa",
+      primaryTextColor: "#171a1f",
+      primaryBorderColor: "#cfd4da",
+      lineColor: "#69707a",
+      secondaryColor: "#ffffff",
+      tertiaryColor: "#eef0f3",
+      fontFamily: "Arial, Microsoft YaHei, sans-serif"
+    },
+    flowchart: {
+      htmlLabels: true,
+      curve: "basis"
+    }
+  });
+</script>
 </body>
 </html>
 """
