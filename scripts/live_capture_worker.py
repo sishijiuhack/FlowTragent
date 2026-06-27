@@ -64,15 +64,35 @@ def main() -> None:
             print(json.dumps({"cmd": cmd, "output": str(target)}, ensure_ascii=False, indent=2))
             return
 
-        subprocess.run(cmd, check=False)
-        print(json.dumps({"segment": str(target), "profile": args.profile, "bpf": bpf}, ensure_ascii=False))
+        completed = subprocess.run(cmd, check=False)
+        if completed.returncode != 0:
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "segment": str(target),
+                        "profile": args.profile,
+                        "bpf": bpf,
+                        "returncode": completed.returncode,
+                        "hint": "Run with sudo or grant tcpdump cap_net_raw,cap_net_admin.",
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            if target.exists() and target.stat().st_size == 0:
+                target.unlink()
+            if args.once:
+                raise SystemExit(completed.returncode)
+            time.sleep(3.0)
+            continue
+        print(json.dumps({"status": "captured", "segment": str(target), "profile": args.profile, "bpf": bpf}, ensure_ascii=False))
         if args.once:
             return
         time.sleep(0.2)
 
 
 def _stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
 
 
 if __name__ == "__main__":
