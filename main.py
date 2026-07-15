@@ -135,7 +135,6 @@ def _analyze(
     )
     evidence_events = network_events or events or []
     if evidence_events:
-        http_events = events or [event for event in evidence_events if getattr(event, "protocol", None) == "HTTP"]
         attack_chain = detect_attack_stages(evidence_events, candidates)
         c2_findings = detect_c2(evidence_events)
         analysis["structured_events"] = [event.to_dict() for event in evidence_events]
@@ -143,7 +142,7 @@ def _analyze(
         analysis["attack_chain"] = attack_chain
         analysis["c2_findings"] = c2_findings
         analysis["source_summary"] = summarize_sources(evidence_events)
-        analysis["impact_assessment"] = assess_impact(http_events, attack_chain, c2_findings, candidates)
+        analysis["impact_assessment"] = assess_impact(evidence_events, attack_chain, c2_findings, candidates)
         analysis["attack_mapping"] = map_attack_techniques(attack_chain, c2_findings)
         analysis["evidence_graph"] = build_evidence_graph(evidence_events, attack_chain, c2_findings)
     analysis["agent_findings"] = run_agent_layer(analysis)

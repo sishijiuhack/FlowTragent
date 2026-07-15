@@ -199,7 +199,10 @@ class ReporterAgent:
         if impact.get("verdict"):
             summary_parts.append(f"Assessment: {impact.get('verdict')} ({impact.get('confidence', 'unknown')} confidence).")
         if top_cve.get("cve"):
-            summary_parts.append(f"Primary CVE candidate: {top_cve.get('cve')}.")
+            if top_cve.get("rule_confirmed") or top_cve.get("signals"):
+                summary_parts.append(f"Primary CVE candidate: {top_cve.get('cve')}.")
+            else:
+                summary_parts.append(f"Top retrieval-only CVE candidate: {top_cve.get('cve')} requires validation.")
         if c2_findings:
             summary_parts.append(f"C2 indicators detected: {', '.join(sorted({item.get('c2_type') for item in c2_findings if item.get('c2_type')}))}.")
         if evidence_paths:

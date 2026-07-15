@@ -54,7 +54,7 @@ def _render_report(analysis: dict[str, Any], language: str) -> list[str]:
 
 def _append_summary(lines: list[str], analysis: dict[str, Any], zh: bool) -> None:
     impact = analysis.get("impact_assessment") or {}
-    top_cve = ((analysis.get("top_cves") or [{}])[0]).get("cve", "N/A")
+    top_cve = _top_cve_label(analysis)
     graph_paths = (analysis.get("evidence_graph") or {}).get("paths") or []
     lines.extend(["", "## 中文摘要" if zh else "## Executive Summary"])
     if zh:
@@ -410,6 +410,16 @@ def _append_recommendations(lines: list[str], analysis: dict[str, Any], zh: bool
     lines.extend(["", "## 修复建议" if zh else "## Recommendations"])
     for item in analysis.get("recommendations", []):
         lines.append(f"- {_translate_text(item) if zh else item}")
+
+
+def _top_cve_label(analysis: dict[str, Any]) -> str:
+    top = (analysis.get("top_cves") or [{}])[0]
+    cve = top.get("cve") or "N/A"
+    if cve == "N/A":
+        return cve
+    if top.get("rule_confirmed") or top.get("signals"):
+        return cve
+    return f"{cve} (retrieval-only candidate)"
 
 
 def _escape_table(value: str) -> str:

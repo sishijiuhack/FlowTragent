@@ -56,11 +56,13 @@ def _detect_recon(events: list[HttpEvent]) -> list[AttackStage]:
 
 def _detect_exploitation(events: list[NetworkEvent], candidates: list[dict]) -> list[AttackStage]:
     evidence_ids = []
+    marker_evidence_ids = []
     for event in events:
         text = event.payload_clean.lower()
         if any(marker in text for marker in EXPLOIT_MARKERS):
             evidence_ids.append(event.event_id)
-    high_cves = [item for item in candidates if float(item.get("score", 0.0)) >= 0.5]
+            marker_evidence_ids.append(event.event_id)
+    high_cves = [item for item in candidates if _is_strong_cve_candidate(item)]
     if high_cves:
         evidence_ids.extend(str(item.get("event_id", "")) for item in high_cves if item.get("event_id"))
     evidence_ids = sorted({item for item in evidence_ids if item})
@@ -71,7 +73,14 @@ def _detect_exploitation(events: list[NetworkEvent], candidates: list[dict]) -> 
     reason = "Exploit-like payload markers observed"
     if cves:
         reason += f"; NOVA-F candidates: {', '.join(cves[:5])}"
-    return [_stage("Exploitation", "Known vulnerability exploitation attempt", "high" if cves else "medium", related_events, reason)]
+    confidence = "high" if cves and marker_evidence_ids else "medium" if marker_evidence_ids or cves else "low"
+    return [_stage("Exploitation", "Known vulnerability exploitation attempt", confidence, related_events, reason)]
+
+
+def _is_strong_cve_candidate(item: dict) -> bool:
+    """Treat retrieval-only hits as weak unless they are clearly supported."""
+    score = float(item.get("final_score", item.get("score", 0.0)) or 0.0)
+    return bool(item.get("rule_confirmed")) or bool(item.get("signals")) or score >= 0.75
 
 
 def _detect_command_execution(events: list[NetworkEvent]) -> list[AttackStage]:

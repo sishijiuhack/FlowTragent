@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from src.event.models import HttpEvent
+from src.event.models import NetworkEvent
 
 
 POST_EXPLOIT_STAGES = {"Command Execution", "Payload Delivery", "WebShell / Backdoor"}
 
 
 def assess_impact(
-    events: list[HttpEvent],
+    events: list[NetworkEvent],
     attack_chain: list[dict],
     c2_findings: list[dict],
     candidates: list[dict],
@@ -17,7 +17,7 @@ def assess_impact(
     stages = {str(stage.get("stage")) for stage in attack_chain}
     top_cves = [item for item in candidates if item.get("rule_confirmed") or float(item.get("final_score", item.get("score", 0))) >= 0.5]
     post_exploit = [stage for stage in attack_chain if stage.get("stage") in POST_EXPLOIT_STAGES]
-    response_codes = [event.status_code for event in events if event.status_code is not None]
+    response_codes = [getattr(event, "status_code") for event in events if getattr(event, "status_code", None) is not None]
     successful_http = [code for code in response_codes if 200 <= code < 400]
     rejected_http = [code for code in response_codes if 400 <= code < 500]
 
@@ -38,6 +38,8 @@ def assess_impact(
 
     high_conf_c2 = [finding for finding in c2_findings if finding.get("confidence") == "high"]
     high_conf_post_exploit = [stage for stage in post_exploit if stage.get("confidence") == "high"]
+    endpoint_post_exploit = [stage for stage in post_exploit if _stage_has_endpoint_evidence(stage, events)]
+    only_rejected_http = bool(rejected_http) and not successful_http
 
     if high_conf_c2 and post_exploit:
         verdict = "Likely successful exploitation with C2 indicators"
@@ -51,14 +53,18 @@ def assess_impact(
         verdict = "Possible compromise with C2 indicators"
         confidence = "medium" if high_conf_c2 else "low"
         reasoning = "Suspicious C2/beacon communication was detected, but the provided traffic does not show the initial exploitation path."
-    elif high_conf_post_exploit:
+    elif (high_conf_post_exploit or endpoint_post_exploit) and not only_rejected_http:
         verdict = "Likely successful exploitation"
         confidence = "high"
         reasoning = "High-confidence post-exploitation indicators such as command execution or payload delivery were observed."
-    elif post_exploit:
+    elif post_exploit and successful_http:
         verdict = "Possible successful exploitation"
         confidence = "medium"
-        reasoning = "Post-exploitation indicators such as command execution, payload delivery, or webshell behavior were observed."
+        reasoning = "Post-exploitation-style indicators and a non-error HTTP response were observed, but host confirmation is still required."
+    elif post_exploit and only_rejected_http:
+        verdict = "Possible exploitation attempt"
+        confidence = "low"
+        reasoning = "Command execution or payload delivery parameters were observed, but all related HTTP responses were 4xx; successful exploitation is not supported by this network evidence."
     elif "Exploitation" in stages and top_cves and successful_http:
         verdict = "Likely exploitation attempt with successful HTTP response"
         confidence = "medium"
@@ -95,7 +101,23 @@ def assess_impact(
         "confidence": confidence,
         "reasoning": reasoning,
         "evidence_ids": evidence_ids,
-        "related_cves": [item.get("cve") for item in top_cves if item.get("cve")],
+        "related_cves": _dedupe([item.get("cve") for item in top_cves if item.get("cve")]),
         "http_status_codes": response_codes,
         "missing_evidence": missing,
     }
+
+
+def _stage_has_endpoint_evidence(stage: dict, events: list[NetworkEvent]) -> bool:
+    event_ids = set(stage.get("evidence_ids", []) or [])
+    return any(getattr(event, "protocol", None) == "ENDPOINT" and event.event_id in event_ids for event in events)
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    output = []
+    seen = set()
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        output.append(item)
+    return output

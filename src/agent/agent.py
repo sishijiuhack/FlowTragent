@@ -134,8 +134,10 @@ class TraceAgent:
                 recommendations.append(
                     f"Payload rule signals support {top['cve']}; prioritize validation and patch review for this CVE."
                 )
+            elif top.get("signals"):
+                recommendations.append(f"Payload rule signals partially support {top['cve']}; validate service exposure and patch status.")
             elif float(top.get("score", 0.0)) >= 0.5:
-                recommendations.append(f"Prioritize validation and patch review for {top['cve']}.")
+                recommendations.append(f"{top['cve']} is a retrieval-only candidate; validate against payload rules, service fingerprint, and logs before prioritizing patch action.")
             else:
                 recommendations.append("NOVA-F similarity scores are low; validate CVE candidates against payload rules and service context before prioritizing patches.")
         if any("SQL" in item for item in attack_types):
