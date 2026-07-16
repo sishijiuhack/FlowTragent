@@ -96,7 +96,7 @@ Live 模式采用“抓包分片 -> 轻量预筛 -> 深度分析 -> 告警入库
 
 | 验收项 | 结果 | 说明 |
 |--------|------|------|
-| 单元/集成测试 | 52 passed, 1 skipped | Windows 环境缺少 scapy，真实 ICMP PCAP 解析测试按设计 skipped。 |
+| 单元/集成测试 | 53 passed | 当前环境已补齐 scapy，真实 ICMP PCAP 解析测试通过。 |
 | 脚本式测试 | 全部通过 | `test_web_app.py`、`test_agent_orchestrator.py`、`test_langgraph_runner.py`。 |
 | Docker Compose | 三服务 healthy | `web`、`analyzer`、`capture` 均可启动。 |
 | `/health` | `status: ok` | NOVA index ready，关键路径存在。 |
