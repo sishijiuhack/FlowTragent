@@ -184,7 +184,7 @@ observability:
 建议使用 `logrotate` 或定时任务轮转：
 
 ```conf
-/mnt/e/ctfcodes/FlowTragent/logs/*.jsonl {
+FlowTragent/logs/*.jsonl {
     daily
     rotate 14
     size 50M

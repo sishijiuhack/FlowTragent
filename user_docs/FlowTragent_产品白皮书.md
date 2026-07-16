@@ -128,6 +128,5 @@ Live 模式采用“抓包分片 -> 轻量预筛 -> 深度分析 -> 告警入库
 - 当前部署：`FlowTragent_部署指南.md`
 - API：`API.md`
 - 架构：`ARCHITECTURE.md`
-- 检索评估：`FlowTragent_DataCon检索评估报告.md`
 - 开发复盘：`FlowTragent_开发报告.md`
-- 历史参考：`Production_Deploy_CN.md`、`Live_Server_Mode_Plan_CN.md`
+
