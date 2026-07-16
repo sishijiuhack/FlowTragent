@@ -13,7 +13,7 @@
 ## 1. WSL Ubuntu
 
 ```bash
-cd /mnt/e/ctfcodes/FlowTragent
+cd FlowTragent
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate flowtragent_py311
 python -m pip install -r requirements.txt
