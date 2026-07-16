@@ -1,4 +1,5 @@
 flowtragent_env/
+.venv/
 .pip_tmp/
 .pip_cache/
 __pycache__/
@@ -8,20 +9,29 @@ __pycache__/
 
 .env
 .env.*
+*.key
+*.pem
+*.p12
+*.sqlite
+*.db
 
 data/pcap/*
 data/csv/*
 data/index/*
 data/rag/*
 data/live/*
+data/tmp/*
 reports/*
+logs/*
 
 !data/pcap/.gitkeep
 !data/csv/.gitkeep
 !data/index/.gitkeep
 !data/rag/.gitkeep
 !data/live/.gitkeep
+!data/tmp/.gitkeep
 !reports/.gitkeep
+!logs/.gitkeep
 
 .DS_Store
 .vscode/

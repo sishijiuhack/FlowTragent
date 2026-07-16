@@ -1,0 +1,27 @@
+[Unit]
+Description=FlowTragent Web UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=flowtragent
+Group=flowtragent
+WorkingDirectory=/opt/FlowTragent
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/opt/FlowTragent/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=FLOWTRAGENT_HOST=127.0.0.1
+Environment=FLOWTRAGENT_PORT=5000
+Environment=FLOWTRAGENT_WORKERS=2
+Environment=FLOWTRAGENT_PYTHON=/opt/FlowTragent/.venv/bin/python
+EnvironmentFile=-/etc/flowtragent/flowtragent.env
+ExecStart=/usr/bin/env bash -c 'exec /opt/FlowTragent/scripts/run_web_prod.sh'
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/FlowTragent/reports /opt/FlowTragent/data
+
+[Install]
+WantedBy=multi-user.target

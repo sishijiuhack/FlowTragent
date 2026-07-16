@@ -8,14 +8,17 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from datetime import datetime, timedelta, timezone
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from main import run_pcap
 from src.core.settings import load_config
+from src.core.structured_logging import log_event
 from src.live.prefilter import prefilter_pcap
+from src.notification import notification_fingerprint, send_notification
+from src.orchestrator.pipeline import run_pcap
 from src.storage.alert_store import AlertStore
 
 
@@ -46,16 +49,34 @@ def process_segment(
     force_demo_index: bool = False,
     enable_rag: bool = False,
     enable_ollama: bool = False,
+    max_deep_analyses_per_hour: int | None = None,
 ) -> dict[str, Any]:
     """Prefilter one PCAP and run deep analysis only when needed."""
     path = Path(pcap_path)
-    result = prefilter_pcap(path, min_risk_score=min_risk_score).to_dict()
+    result = prefilter_pcap(path, min_risk_score=min_risk_score, config=config).to_dict()
     store.upsert_prefilter(result)
+    log_event(
+        config,
+        "live_analyzer_worker",
+        "segment_prefiltered",
+        "Live segment prefilter completed.",
+        segment_path=str(path),
+        severity=result.get("severity"),
+        risk_score=result.get("risk_score"),
+        recommended_action=result.get("recommended_action"),
+    )
     if result["recommended_action"] != "deep_analysis":
         store.mark_skipped(path)
+        log_event(config, "live_analyzer_worker", "segment_skipped", "Live segment skipped after prefilter.", segment_path=str(path), risk_score=result.get("risk_score"))
         return {"segment": str(path), "status": "skipped", "prefilter": result}
+    if _rate_limited(store, max_deep_analyses_per_hour):
+        store.mark_rate_limited(path)
+        log_event(config, "live_analyzer_worker", "segment_rate_limited", "Live segment deep analysis rate limited.", level="WARNING", segment_path=str(path))
+        _notify(config, store, "segment_rate_limited", result, path)
+        return {"segment": str(path), "status": "rate_limited", "prefilter": result}
 
     store.mark_analyzing(path)
+    log_event(config, "live_analyzer_worker", "deep_analysis_started", "Live segment deep analysis started.", segment_path=str(path))
     try:
         report = run_pcap(
             path,
@@ -68,15 +89,19 @@ def process_segment(
         )
     except Exception as exc:
         store.mark_error(path, str(exc))
+        log_event(config, "live_analyzer_worker", "deep_analysis_error", "Live segment deep analysis failed.", level="ERROR", segment_path=str(path), error=str(exc))
+        _notify(config, store, "deep_analysis_error", result, path, error=str(exc))
         return {"segment": str(path), "status": "error", "error": str(exc), "prefilter": result}
     store.mark_reported(path, report)
+    log_event(config, "live_analyzer_worker", "deep_analysis_reported", "Live segment deep analysis reported.", segment_path=str(path), report_path=str(report))
+    _notify(config, store, "deep_analysis_reported", result, path, report_path=report)
     return {"segment": str(path), "status": "reported", "report": str(report), "prefilter": result}
 
 
 def main() -> None:
     args = parse_args()
     config = load_config(args.config)
-    store = AlertStore(args.db)
+    store = AlertStore(args.db, merge_window_seconds=int(config.get("live", {}).get("alert_merge_seconds", 180)))
     watch_dir = Path(args.watch_dir)
     watch_dir.mkdir(parents=True, exist_ok=True)
     processed = {item["segment_path"] for item in store.list_alerts(limit=10000)}
@@ -97,6 +122,7 @@ def main() -> None:
                 force_demo_index=args.demo_index,
                 enable_rag=args.enable_rag,
                 enable_ollama=args.enable_ollama,
+                max_deep_analyses_per_hour=int(config.get("live", {}).get("max_deep_analyses_per_hour", 60)),
             )
             processed.add(str(pcap_path))
             print(json.dumps(output, ensure_ascii=False, indent=2))
@@ -113,6 +139,91 @@ def _is_stable(path: Path, stable_seconds: float) -> bool:
     except FileNotFoundError:
         return False
     return before == after and after > 0
+
+
+def _rate_limited(store: AlertStore, max_deep_analyses_per_hour: int | None) -> bool:
+    if max_deep_analyses_per_hour is None or max_deep_analyses_per_hour <= 0:
+        return False
+    since = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+    return store.count_deep_analyses_since(since) >= max_deep_analyses_per_hour
+
+
+def _notify(
+    config: dict[str, Any],
+    store: AlertStore,
+    event_type: str,
+    prefilter: dict[str, Any],
+    segment_path: str | Path,
+    report_path: str | Path | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    notification_config = (config or {}).get("notification") or {}
+    if not _suppression_applies(notification_config, prefilter):
+        result = send_notification(config, event_type, prefilter, segment_path, report_path=report_path, error=error)
+        log_event(
+            config,
+            "live_analyzer_worker",
+            "notification_result",
+            "Notification attempt completed.",
+            event_type=event_type,
+            segment_path=str(segment_path),
+            sent=result.get("sent"),
+            reason=result.get("reason"),
+            status=result.get("status"),
+        )
+        return result
+    fingerprint = notification_fingerprint(event_type, prefilter)
+    suppression = store.should_send_notification(
+        fingerprint,
+        {
+            "event_type": event_type,
+            "segment_path": str(segment_path),
+            "report_path": str(report_path) if report_path else None,
+            "error": error,
+            "severity": prefilter.get("severity"),
+            "risk_score": prefilter.get("risk_score"),
+        },
+        int(notification_config.get("suppress_window_seconds", 300)),
+    )
+    if not suppression.get("send"):
+        log_event(
+            config,
+            "live_analyzer_worker",
+            "notification_suppressed",
+            "Notification suppressed by fingerprint window.",
+            event_type=event_type,
+            segment_path=str(segment_path),
+            fingerprint=fingerprint,
+            suppressed_count=suppression.get("suppressed_count"),
+            last_sent_at=suppression.get("last_sent_at"),
+        )
+        return {"sent": False, "reason": "suppressed", "fingerprint": fingerprint, **suppression}
+    result = send_notification(config, event_type, prefilter, segment_path, report_path=report_path, error=error)
+    log_event(
+        config,
+        "live_analyzer_worker",
+        "notification_result",
+        "Notification attempt completed.",
+        event_type=event_type,
+        segment_path=str(segment_path),
+        sent=result.get("sent"),
+        reason=result.get("reason"),
+        status=result.get("status"),
+        fingerprint=fingerprint,
+    )
+    return {**result, "fingerprint": fingerprint}
+
+
+def _suppression_applies(notification_config: dict[str, Any], prefilter: dict[str, Any]) -> bool:
+    if not notification_config.get("enabled", False):
+        return False
+    webhook = notification_config.get("webhook") or {}
+    if not webhook.get("enabled", False) or not str(webhook.get("url") or "").strip():
+        return False
+    order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+    severity = str((prefilter or {}).get("severity") or "low").lower()
+    minimum = str(notification_config.get("min_severity") or "high").lower()
+    return order.get(severity, 0) >= order.get(minimum, 2)
 
 
 if __name__ == "__main__":

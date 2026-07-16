@@ -53,6 +53,7 @@ class TraceAgent:
                 "rule_bonus": details.get(cve, {}).get("rule_bonus", 0.0),
                 "rule_confirmed": details.get(cve, {}).get("rule_confirmed", False),
                 "signals": details.get(cve, {}).get("signals", []),
+                "cve_support_level": self._cve_support_level(details.get(cve, {}), score),
                 "neighbor_id": details.get(cve, {}).get("neighbor_id"),
                 "neighbor_labels": details.get(cve, {}).get("neighbor_labels", []),
                 "label_votes": details.get(cve, {}).get("label_votes", {}),
@@ -121,6 +122,16 @@ class TraceAgent:
     def _summarize_payload(payload: str) -> str:
         compact = " ".join(payload.split())
         return compact[:220] + ("..." if len(compact) > 220 else "")
+
+    @staticmethod
+    def _cve_support_level(candidate: Dict, score: float) -> str:
+        if candidate.get("rule_confirmed"):
+            return "rule_confirmed"
+        if candidate.get("signals"):
+            return "rule_supported"
+        if score >= 0.5:
+            return "retrieval_only"
+        return "weak_candidate"
 
     @staticmethod
     def _recommend(attack_types: List[str], ranked: List[Dict]) -> List[str]:

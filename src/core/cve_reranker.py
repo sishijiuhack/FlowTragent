@@ -16,14 +16,26 @@ RULES = [
     {
         "cve": "CVE-2021-44228",
         "signals": ["jndi_callback_protocol"],
-        "needles": ["ldap://", "rmi://", "dns://"],
+        "any_needles": ["ldap://", "rmi://", "dns://"],
         "bonus": 0.35,
+    },
+    {
+        "cve": "CVE-2021-44228",
+        "signals": ["obfuscated_jndi_lookup"],
+        "needles": ["${jnd", "ldap://"],
+        "bonus": 0.7,
     },
     {
         "cve": "CVE-2021-42013",
         "signals": ["apache_path_traversal"],
         "needles": ["%2e%2e", "/cgi-bin/", "/etc/passwd"],
         "bonus": 0.45,
+    },
+    {
+        "cve": "CVE-2021-42013",
+        "signals": ["apache_cgi_path_traversal_rce"],
+        "needles": ["/cgi-bin/", "%2e", "/bin/sh"],
+        "bonus": 0.6,
     },
     {
         "cve": "CVE-2021-41773",
@@ -36,6 +48,42 @@ RULES = [
         "signals": ["spring4shell_parameters"],
         "needles": ["class.module.classloader", "pipeline.first"],
         "bonus": 0.65,
+    },
+    {
+        "cve": "CVE-2022-22947",
+        "signals": ["spring_cloud_gateway_actuator"],
+        "needles": ["/actuator/gateway/routes"],
+        "bonus": 0.75,
+    },
+    {
+        "cve": "CVE-2023-43208",
+        "signals": ["xstream_eventhandler_deserialization"],
+        "needles": ["java.beans.eventhandler", "dynamic-proxy"],
+        "bonus": 0.75,
+    },
+    {
+        "cve": "CVE-2023-1389",
+        "signals": ["tenda_luci_command_injection"],
+        "needles": ["/cgi-bin/luci", "command="],
+        "bonus": 0.7,
+    },
+    {
+        "cve": "CVE-2018-20062",
+        "signals": ["thinkphp_invokefunction_rce"],
+        "needles": ["think", "invokefunction", "call_user_func_array"],
+        "bonus": 0.7,
+    },
+    {
+        "cve": "CVE-2019-19781",
+        "signals": ["citrix_adc_vpn_path_traversal"],
+        "needles": ["/vpn/", "../vpns/"],
+        "bonus": 0.7,
+    },
+    {
+        "cve": "CVE-2021-26710",
+        "signals": ["xss_script_probe"],
+        "needles": ["<script>", "alert(document.domain)"],
+        "bonus": 0.55,
     },
 ]
 
@@ -59,7 +107,9 @@ def rerank_candidates(payload: str, candidates: List[Dict]) -> List[Dict]:
             by_cve[cve] = normalized
 
     for rule in RULES:
-        if all(needle in payload_lower for needle in rule["needles"]):
+        needles = rule.get("needles", [])
+        any_needles = rule.get("any_needles", [])
+        if all(needle in payload_lower for needle in needles) and (not any_needles or any(needle in payload_lower for needle in any_needles)):
             item = by_cve.setdefault(
                 rule["cve"],
                 {
@@ -102,4 +152,3 @@ def label_votes(candidates: List[Dict]) -> Dict[str, int]:
             if label.startswith("CVE-"):
                 votes[label] += 1
     return dict(sorted(votes.items(), key=lambda row: row[1], reverse=True))
-

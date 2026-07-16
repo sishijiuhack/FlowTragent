@@ -141,17 +141,17 @@ def _append_cves(lines: list[str], analysis: dict[str, Any], zh: bool) -> None:
         lines.append("- 未检索到满足条件的 CVE 候选。" if zh else "- No CVE candidate passed retrieval.")
         return
     headers = (
-        "| CVE | 综合分 | 检索分 | 规则分 | 信号 | 证据 |",
-        "| --- | ---: | ---: | ---: | --- | --- |",
+        "| CVE | 支持层级 | 综合分 | 检索分 | 规则分 | 信号 | 证据 |",
+        "| --- | --- | ---: | ---: | ---: | --- | --- |",
     ) if zh else (
-        "| CVE | Final | Retrieval | Rule | Signals | Evidence |",
-        "| --- | ---: | ---: | ---: | --- | --- |",
+        "| CVE | Support Level | Final | Retrieval | Rule | Signals | Evidence |",
+        "| --- | --- | ---: | ---: | ---: | --- | --- |",
     )
     lines.extend(headers)
     for item in top_cves:
         evidence = _escape_table(str(item.get("evidence", ""))[:160])
         lines.append(
-            f"| {item.get('cve')} | {item.get('score')} | {_fmt(item.get('retrieval_score'))} | "
+            f"| {item.get('cve')} | {_support_level_label(item.get('cve_support_level'), zh)} | {item.get('score')} | {_fmt(item.get('retrieval_score'))} | "
             f"{_fmt(item.get('rule_bonus'))} | {', '.join(item.get('signals', []))} | `{evidence}` |"
         )
 
@@ -303,6 +303,77 @@ def _append_impact(lines: list[str], analysis: dict[str, Any], zh: bool) -> None
         lines.append("- 证据缺口:" if zh else "- Missing evidence:")
         for item in impact.get("missing_evidence", []):
             lines.append(f"  - {_translate_text(item) if zh else item}")
+    _append_evidence_structure(lines, impact, zh)
+
+
+def _append_evidence_structure(lines: list[str], impact: dict[str, Any], zh: bool) -> None:
+    observed = []
+    if impact.get("evidence_ids"):
+        evidence_label = "已关联证据 ID" if zh else "Correlated evidence IDs"
+        observed.append(f"{evidence_label}: {', '.join(impact.get('evidence_ids', []))}")
+    if impact.get("related_cves"):
+        cve_label = "相关 CVE" if zh else "Related CVEs"
+        observed.append(f"{cve_label}: {', '.join(impact.get('related_cves', []))}")
+    if impact.get("http_status_codes"):
+        status_label = "HTTP 状态码" if zh else "HTTP status codes"
+        observed.append(f"{status_label}: {', '.join(str(code) for code in impact.get('http_status_codes', []))}")
+    if not observed:
+        observed.append("未观察到可用于支撑结论的直接证据。" if zh else "No direct supporting evidence was observed.")
+
+    not_observed = [
+        _translate_text(item) if zh else item
+        for item in (impact.get("missing_evidence") or [])
+    ] or ["暂无明确证据缺口。" if zh else "No explicit evidence gaps were recorded."]
+
+    drivers = _confidence_drivers(impact, zh)
+    reducers = _confidence_reducers(impact, zh)
+    sections = [
+        ("Evidence Observed", "已观察证据", observed),
+        ("Not Observed", "未观察证据", not_observed),
+        ("Confidence Drivers", "置信度提升因素", drivers),
+        ("Reducers", "置信度降低因素", reducers),
+    ]
+
+    lines.extend(["", "## 证据结构" if zh else "## Evidence Structure"])
+    for title, title_zh, items in sections:
+        lines.append(f"### {title}（{title_zh}）" if zh else f"### {title}")
+        for item in items:
+            lines.append(f"- {item}")
+
+
+def _confidence_drivers(impact: dict[str, Any], zh: bool) -> list[str]:
+    drivers = []
+    confidence = str(impact.get("confidence") or "").lower()
+    if confidence in {"high", "medium"}:
+        drivers.append(
+            f"确定性影响研判置信度为 {_confidence_zh(confidence)}。"
+            if zh
+            else f"Deterministic impact confidence is {confidence}."
+        )
+    if impact.get("evidence_ids"):
+        drivers.append("存在可追溯证据 ID 支撑研判。" if zh else "Traceable evidence IDs support the assessment.")
+    if impact.get("related_cves"):
+        drivers.append("存在与候选 CVE 关联的证据。" if zh else "Evidence is linked to candidate CVEs.")
+    if any(200 <= int(code) < 400 for code in impact.get("http_status_codes", []) if str(code).isdigit()):
+        drivers.append("观察到 2xx/3xx HTTP 响应。" if zh else "2xx/3xx HTTP responses were observed.")
+    return drivers or ["暂无明确置信度提升因素。" if zh else "No explicit confidence drivers were recorded."]
+
+
+def _confidence_reducers(impact: dict[str, Any], zh: bool) -> list[str]:
+    reducers = []
+    missing = impact.get("missing_evidence") or []
+    if missing:
+        reducers.extend(_translate_text(item) if zh else item for item in missing)
+    status_codes = [int(code) for code in impact.get("http_status_codes", []) if str(code).isdigit()]
+    if status_codes and all(400 <= code < 500 for code in status_codes):
+        reducers.append(
+            "仅观察到 4xx HTTP 响应，网络证据不支持成功利用结论。"
+            if zh
+            else "Only 4xx HTTP responses were observed, which does not support a successful exploitation conclusion."
+        )
+    if str(impact.get("confidence") or "").lower() == "low":
+        reducers.append("确定性影响研判置信度为低。" if zh else "Deterministic impact confidence is low.")
+    return reducers or ["暂无明确置信度降低因素。" if zh else "No explicit confidence reducers were recorded."]
 
 
 def _append_graph(lines: list[str], analysis: dict[str, Any], zh: bool) -> None:
@@ -420,6 +491,19 @@ def _top_cve_label(analysis: dict[str, Any]) -> str:
     if top.get("rule_confirmed") or top.get("signals"):
         return cve
     return f"{cve} (retrieval-only candidate)"
+
+
+def _support_level_label(value: Any, zh: bool) -> str:
+    level = str(value or "unknown")
+    if not zh:
+        return level
+    return {
+        "rule_confirmed": "规则确认",
+        "rule_supported": "规则信号支持",
+        "retrieval_only": "仅检索候选",
+        "weak_candidate": "弱候选",
+        "unknown": "未知",
+    }.get(level, level)
 
 
 def _escape_table(value: str) -> str:

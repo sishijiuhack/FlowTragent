@@ -51,12 +51,18 @@ class NovaClient:
         index_dir: str | Path = "data/index",
         model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
         force_demo_index: bool = False,
+        min_retrieval_score: float | None = None,
     ) -> None:
         self.index_dir = Path(index_dir)
         self.index_path = self.index_dir / "faiss.index"
         self.meta_path = self.index_dir / "meta.json"
         self.model_name = model_name
         self.force_demo_index = force_demo_index
+        self.min_retrieval_score = (
+            float(os.getenv("FLOWTRAGENT_MIN_RETRIEVAL_SCORE", "0.0"))
+            if min_retrieval_score is None
+            else float(min_retrieval_score)
+        )
         self._model = None
         self._index = None
         self._meta: Dict | None = None
@@ -67,23 +73,46 @@ class NovaClient:
             self._build_demo_index()
 
     def search(self, payload: str, top_k: int = 5) -> List[Dict]:
+        return self.batch_search([payload], top_k=top_k)[0]
+
+    def batch_search(self, payloads: List[str], top_k: int = 5) -> List[List[Dict]]:
         self._load_index()
-        query = self._embed([payload])
-        self._normalize(query)
-        scores, indexes = self._index.search(query.astype("float32"), top_k)
+        if not payloads:
+            return []
+        queries = self._embed(payloads)
+        self._normalize(queries)
+        scores, indexes = self._index.search(queries.astype("float32"), top_k)
 
         ids = list(self._meta.get("ids", []))
         labels = list(self._meta.get("cve_labels", []))
-        payloads = list(self._meta.get("payloads", []))
-        results: List[Dict] = []
-        seen: set[str] = set()
+        neighbor_payloads = list(self._meta.get("payloads", []))
+        all_results: List[List[Dict]] = []
+        for payload, row_indexes, row_scores in zip(payloads, indexes, scores):
+            raw_candidates = self._raw_candidates_for_neighbors(neighbor_payloads, labels, ids, row_indexes, row_scores)
+            results = rerank_candidates(payload, raw_candidates)
+            votes = label_votes(raw_candidates)
+            for item in results:
+                item["label_votes"] = votes
+            all_results.append(results)
+        return all_results
 
+    def _raw_candidates_for_neighbors(
+        self,
+        payloads: List[str],
+        labels: List[object],
+        ids: List[str],
+        indexes: np.ndarray,
+        scores: np.ndarray,
+    ) -> List[Dict]:
+        seen: set[str] = set()
         raw_candidates: List[Dict] = []
-        for rank, (idx, score) in enumerate(zip(indexes[0], scores[0]), start=1):
+        for rank, (idx, score) in enumerate(zip(indexes, scores), start=1):
             if idx < 0 or idx >= len(labels):
                 continue
             raw_score = round(float(score), 4)
             display_score = max(0.0, raw_score)
+            if display_score < self.min_retrieval_score:
+                continue
             neighbor_labels = self._normalize_labels(labels[idx])
             for cve in neighbor_labels:
                 if cve in seen:
@@ -105,11 +134,7 @@ class NovaClient:
                     }
                 )
                 break
-        results = rerank_candidates(payload, raw_candidates)
-        votes = label_votes(raw_candidates)
-        for item in results:
-            item["label_votes"] = votes
-        return results
+        return raw_candidates
 
     def _load_index(self) -> None:
         if self._index is not None and self._meta is not None:

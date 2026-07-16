@@ -1,0 +1,32 @@
+[Unit]
+Description=FlowTragent Live Analyzer Worker
+After=network-online.target flowtragent-capture.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=flowtragent
+Group=flowtragent
+WorkingDirectory=/opt/FlowTragent
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/opt/FlowTragent/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=FLOWTRAGENT_LIVE_INCOMING_DIR=data/live/incoming
+Environment=FLOWTRAGENT_ALERT_DB=data/live/alerts.db
+Environment=FLOWTRAGENT_CONFIG=config/config.yaml
+Environment=FLOWTRAGENT_REPORT_DIR=reports
+Environment=FLOWTRAGENT_MIN_RISK_SCORE=50
+Environment=FLOWTRAGENT_POLL_SECONDS=5
+Environment=FLOWTRAGENT_STABLE_SECONDS=1
+Environment=FLOWTRAGENT_TOP_K=5
+Environment=FLOWTRAGENT_PYTHON=/opt/FlowTragent/.venv/bin/python
+EnvironmentFile=-/etc/flowtragent/flowtragent.env
+ExecStart=/usr/bin/env bash -c 'exec "$FLOWTRAGENT_PYTHON" /opt/FlowTragent/scripts/live_analyzer_worker.py --watch-dir "$FLOWTRAGENT_LIVE_INCOMING_DIR" --db "$FLOWTRAGENT_ALERT_DB" --config "$FLOWTRAGENT_CONFIG" --output-dir "$FLOWTRAGENT_REPORT_DIR" --min-risk-score "$FLOWTRAGENT_MIN_RISK_SCORE" --poll-seconds "$FLOWTRAGENT_POLL_SECONDS" --stable-seconds "$FLOWTRAGENT_STABLE_SECONDS" --top-k "$FLOWTRAGENT_TOP_K"'
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/FlowTragent/reports /opt/FlowTragent/data
+
+[Install]
+WantedBy=multi-user.target

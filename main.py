@@ -6,26 +6,9 @@ import argparse
 import json
 from pathlib import Path
 
-from src.agent.agent import TraceAgent
-from src.agent.llm_summary import (
-    generate_validated_llm_summary,
-)
-from src.agent.orchestrator import run_agent_layer
-from src.correlation.attack_chain import detect_attack_stages
-from src.correlation.attack_mapper import map_attack_techniques
-from src.correlation.c2_detector import detect_c2
-from src.correlation.evidence_graph import build_evidence_graph
-from src.correlation.impact_analyzer import assess_impact
-from src.correlation.source_tracker import summarize_sources
-from src.correlation.timeline import build_timeline
-from src.core.nova_client import NovaClient
-from src.core.ollama_client import OllamaClient
 from src.core.settings import load_config
+from src.orchestrator.pipeline import run_pcap, run_payload
 from src.parser.capture import capture_with_tcpdump
-from src.parser.log_parser import parse_log_bundle
-from src.parser.pcap_parser import parse_network_events, parse_pcap_events, pcap_to_csv
-from src.rag.knowledge_base import KnowledgeBase
-from src.report.generator import write_report
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,144 +27,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--access-log", action="append", default=[], help="Supplementary web access log path; can be repeated")
     parser.add_argument("--dns-log", action="append", default=[], help="Supplementary DNS log path; can be repeated")
     parser.add_argument("--endpoint-log", action="append", default=[], help="Supplementary endpoint/process log path; can be repeated")
+    parser.add_argument("--app-log", action="append", default=[], help="Supplementary application log path; can be repeated")
+    parser.add_argument("--zeek-log", action="append", default=[], help="Supplementary Zeek http/dns/ssl/conn log path; can be repeated")
+    parser.add_argument("--suricata-log", action="append", default=[], help="Supplementary Suricata EVE JSON/JSONL path; can be repeated")
     return parser.parse_args()
-
-
-def run_payload(payload: str, config: dict, output_dir: Path, top_k: int, force_demo_index: bool, enable_rag: bool, enable_ollama: bool) -> Path:
-    nova = _build_nova(config, force_demo_index)
-    candidates = nova.search(payload, top_k=top_k)
-    analysis = _analyze([payload], candidates, config, enable_rag, enable_ollama)
-    return write_report(analysis, output_dir=output_dir)
-
-
-def run_pcap(
-    pcap_path: Path,
-    config: dict,
-    output_dir: Path,
-    top_k: int,
-    force_demo_index: bool,
-    enable_rag: bool,
-    enable_ollama: bool,
-    access_logs: list[str] | None = None,
-    dns_logs: list[str] | None = None,
-    endpoint_logs: list[str] | None = None,
-) -> Path:
-    csv_path = Path(config["paths"]["csv_dir"]) / f"{pcap_path.stem}.csv"
-    network_events = parse_network_events(str(pcap_path))
-    events = parse_pcap_events(str(pcap_path))
-    log_events = parse_log_bundle(access_logs=access_logs, dns_logs=dns_logs, endpoint_logs=endpoint_logs)
-    network_events = sorted([*network_events, *log_events], key=lambda event: event.timestamp or 0)
-    events = sorted([*events, *[event for event in log_events if getattr(event, "protocol", None) == "HTTP"]], key=lambda event: event.timestamp or 0)
-    extracted = pcap_to_csv(str(pcap_path), str(csv_path))
-    if not network_events:
-        raise RuntimeError(f"No supported network events were extracted from {pcap_path}")
-
-    payloads = [event.payload_clean for event in events if event.payload_clean.strip()]
-
-    nova = _build_nova(config, force_demo_index)
-    all_candidates = []
-    for event in events:
-        for rank, item in enumerate(nova.search(event.payload_clean, top_k=top_k), start=1):
-            item["event_id"] = event.event_id
-            item["rank"] = rank
-            all_candidates.append(item)
-
-    analysis = _analyze(
-        payloads=payloads,
-        candidates=all_candidates,
-        config=config,
-        enable_rag=enable_rag,
-        enable_ollama=enable_ollama,
-        source_file=str(pcap_path),
-        csv_file=str(csv_path),
-        events=events,
-        network_events=network_events,
-    )
-    return write_report(analysis, output_dir=output_dir)
-
-
-def _build_nova(config: dict, force_demo_index: bool) -> NovaClient:
-    return NovaClient(
-        index_dir=config["paths"]["index_dir"],
-        model_name=config["retrieval"]["model_name"],
-        force_demo_index=force_demo_index,
-    )
-
-
-def _analyze(
-    payloads: list[str],
-    candidates: list[dict],
-    config: dict,
-    enable_rag: bool,
-    enable_ollama: bool,
-    source_file: str | None = None,
-    csv_file: str | None = None,
-    events: list | None = None,
-    network_events: list | None = None,
-) -> dict:
-    agent = TraceAgent()
-    rag_context = []
-    if enable_rag:
-        query_text = "\n".join(payloads[:5])
-        rag_context = KnowledgeBase(config["paths"]["rag_dir"]).query(query_text, top_k=3)
-
-    analysis = agent.analyze(
-        payloads=payloads,
-        candidates=candidates,
-        source_file=source_file,
-        csv_file=csv_file,
-        rag_context=rag_context,
-        llm_summary=None,
-    )
-    evidence_events = network_events or events or []
-    if evidence_events:
-        attack_chain = detect_attack_stages(evidence_events, candidates)
-        c2_findings = detect_c2(evidence_events)
-        analysis["structured_events"] = [event.to_dict() for event in evidence_events]
-        analysis["attack_timeline"] = build_timeline(evidence_events)
-        analysis["attack_chain"] = attack_chain
-        analysis["c2_findings"] = c2_findings
-        analysis["source_summary"] = summarize_sources(evidence_events)
-        analysis["impact_assessment"] = assess_impact(evidence_events, attack_chain, c2_findings, candidates)
-        analysis["attack_mapping"] = map_attack_techniques(attack_chain, c2_findings)
-        analysis["evidence_graph"] = build_evidence_graph(evidence_events, attack_chain, c2_findings)
-    analysis["agent_findings"] = run_agent_layer(analysis)
-    ollama_enabled = enable_ollama or bool(config.get("ollama", {}).get("enabled"))
-    if ollama_enabled:
-        model = config["ollama"]["model"]
-        ollama = OllamaClient(config["ollama"]["host"], model)
-        if ollama.is_available():
-            if not ollama.has_model(model):
-                analysis["llm_structured_summary"] = {
-                    "schema_version": "llm-summary-v1",
-                    "model": model,
-                    "status": "model_unavailable",
-                    "summary": "",
-                    "supported_claims": [],
-                    "unsupported_claims": [f"Ollama model is not available locally: {model}"],
-                    "recommended_actions": [],
-                    "invalid_references": [],
-                    "deterministic_verdict": (analysis.get("impact_assessment") or {}).get("verdict"),
-                    "available_models": ollama.list_models(),
-                }
-                analysis["llm_summary"] = f"Ollama model is not available locally: {model}"
-            else:
-                analysis["llm_structured_summary"] = generate_validated_llm_summary(ollama, analysis, model=model)
-                analysis["llm_summary"] = analysis["llm_structured_summary"].get("summary") or None
-        else:
-            analysis["llm_structured_summary"] = {
-                "schema_version": "llm-summary-v1",
-                "model": model,
-                "status": "unavailable",
-                "summary": "",
-                "supported_claims": [],
-                "unsupported_claims": ["Ollama is not available; deterministic agent analysis was used."],
-                "recommended_actions": [],
-                "invalid_references": [],
-                "deterministic_verdict": (analysis.get("impact_assessment") or {}).get("verdict"),
-            }
-            analysis["llm_summary"] = "Ollama is not available; deterministic agent analysis was used."
-    return analysis
 
 
 def main() -> None:
@@ -191,27 +40,7 @@ def main() -> None:
     top_k = args.top_k or int(config["retrieval"]["top_k"])
 
     if args.mode == "live":
-        if not args.interface:
-            raise SystemExit("--interface is required for live mode")
-        pcap_path = Path(config["paths"]["pcap_dir"]) / "live_capture.pcap"
-        captured = capture_with_tcpdump(
-            args.interface,
-            pcap_path,
-            duration=args.capture_seconds or int(config["live_capture"]["duration"]),
-            packet_count=args.packet_count or int(config["live_capture"]["packet_count"]),
-        )
-        report_path = run_pcap(
-            captured,
-            config,
-            output_dir,
-            top_k,
-            args.demo_index,
-            args.enable_rag,
-            args.enable_ollama,
-            args.access_log,
-            args.dns_log,
-            args.endpoint_log,
-        )
+        report_path = _run_live(args, config, output_dir, top_k)
     elif args.mode == "payload":
         if not args.input:
             raise SystemExit("--input is required for payload mode")
@@ -230,9 +59,39 @@ def main() -> None:
             args.access_log,
             args.dns_log,
             args.endpoint_log,
+            args.app_log,
+            args.zeek_log,
+            args.suricata_log,
         )
 
     print(json.dumps({"report": str(report_path)}, ensure_ascii=False, indent=2))
+
+
+def _run_live(args: argparse.Namespace, config: dict, output_dir: Path, top_k: int) -> Path:
+    if not args.interface:
+        raise SystemExit("--interface is required for live mode")
+    pcap_path = Path(config["paths"]["pcap_dir"]) / "live_capture.pcap"
+    captured = capture_with_tcpdump(
+        args.interface,
+        pcap_path,
+        duration=args.capture_seconds or int(config["live_capture"]["duration"]),
+        packet_count=args.packet_count or int(config["live_capture"]["packet_count"]),
+    )
+    return run_pcap(
+        captured,
+        config,
+        output_dir,
+        top_k,
+        args.demo_index,
+        args.enable_rag,
+        args.enable_ollama,
+        args.access_log,
+        args.dns_log,
+        args.endpoint_log,
+        args.app_log,
+        args.zeek_log,
+        args.suricata_log,
+    )
 
 
 if __name__ == "__main__":

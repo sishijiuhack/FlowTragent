@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -13,7 +16,18 @@ import web_app
 
 
 def main() -> None:
+    previous_token = os.environ.pop("FLOWTRAGENT_TOKEN", None)
     client = web_app.app.test_client()
+    try:
+        _run_web_ui_checks(client)
+    finally:
+        if previous_token is None:
+            os.environ.pop("FLOWTRAGENT_TOKEN", None)
+        else:
+            os.environ["FLOWTRAGENT_TOKEN"] = previous_token
+
+
+def _run_web_ui_checks(client) -> None:
 
     index = client.get("/")
     index_body = index.get_data(as_text=True)
@@ -26,6 +40,16 @@ def main() -> None:
     alerts = client.get("/alerts")
     alerts_body = alerts.get_data(as_text=True)
     assert alerts.status_code == 200
+    health = client.get("/health")
+    assert health.status_code == 200
+    health_json = health.get_json()
+    assert health_json["status"] in {"ok", "degraded"}
+    assert set(health_json["components"]) == {"capture_worker", "analyzer_worker", "nova_index"}
+    assert "running" in health_json["components"]["capture_worker"]
+    assert "running" in health_json["components"]["analyzer_worker"]
+    assert "index_dir" in health_json["components"]["nova_index"]
+    assert "report_dir" in health_json["paths"]
+    assert "Attack Activities" in alerts_body
     assert "实时告警" in alerts_body
     assert "准实时预筛结果" in alerts_body
 
@@ -81,8 +105,12 @@ def main() -> None:
     assert "process_external_connection" in body_en
     assert "English" in body_en
     assert 'class="mermaid"' in body_en
-    assert "mermaid.initialize" in body_en
+    assert "/static/app.css" in body_en
+    assert "/static/report.js" in body_en
     assert "Show Mermaid / DOT source" in body_en
+    report_js = client.get("/static/report.js")
+    assert report_js.status_code == 200
+    assert "mermaid.initialize" in report_js.get_data(as_text=True)
 
     detail_zh = client.get(f"/view-report/{md_name}?lang=zh")
     body_zh = detail_zh.get_data(as_text=True)
@@ -114,11 +142,106 @@ def main() -> None:
     assert archive.status_code == 200
     assert archive.mimetype == "application/zip"
 
-    delete = client.post(f"/delete-report/{md_name}", follow_redirects=True)
+    _run_upload_security_checks(client, report_dir)
+
+    os.environ["FLOWTRAGENT_TOKEN"] = "webtest-secret"
+    assert client.get("/alerts").status_code == 401
+    assert client.get("/health").status_code == 200
+    assert client.get("/alerts?token=wrong").status_code == 401
+    assert client.get("/alerts?token=webtest-secret").status_code == 200
+    assert client.post("/analyze-payload", data={"payload": "GET / HTTP/1.1"}).status_code == 401
+    assert client.get(f"/reports/{md_name}").status_code == 401
+    assert client.get(f"/reports/{md_name}", headers={"X-FlowTragent-Token": "webtest-secret"}).status_code == 200
+    assert client.get("/export-reports.zip").status_code == 401
+    assert client.get("/export-reports.zip", headers={"Authorization": "Bearer webtest-secret"}).status_code == 200
+    assert client.get(f"/graph-svg/{json_path.name}?lang=en").status_code == 401
+    assert client.get(f"/graph-svg/{json_path.name}?lang=en&token=webtest-secret").status_code == 200
+    denied_delete = client.post(f"/delete-report/{md_name}", data={"flowtragent_token": "wrong"})
+    assert denied_delete.status_code == 401
+    assert md_path.exists()
+
+    delete = client.post(
+        f"/delete-report/{md_name}",
+        data={"flowtragent_token": "webtest-secret"},
+        follow_redirects=True,
+    )
     assert delete.status_code == 200
     assert not md_path.exists()
     assert not zh_path.exists()
     assert not json_path.exists()
+
+
+def _run_upload_security_checks(client, report_dir: Path) -> None:
+    original_run_pcap = web_app.run_pcap
+    original_max_upload_bytes = web_app.MAX_UPLOAD_BYTES
+    calls = []
+
+    def fake_run_pcap(pcap_path, *args, **kwargs):
+        calls.append({"path": Path(pcap_path), "kwargs": kwargs})
+        return SimpleNamespace(name="flowtragent_report_upload_stub.md")
+
+    web_app.run_pcap = fake_run_pcap
+    try:
+        rejected_ext = client.post(
+            "/analyze-pcap",
+            data={"pcap": (BytesIO(b"\xd4\xc3\xb2\xa1bad"), "bad.exe")},
+            content_type="multipart/form-data",
+        )
+        assert rejected_ext.status_code == 400
+        assert "Unsupported upload file type" in rejected_ext.get_data(as_text=True)
+
+        rejected_magic = client.post(
+            "/analyze-pcap",
+            data={"pcap": (BytesIO(b"not a pcap"), "bad.pcap")},
+            content_type="multipart/form-data",
+        )
+        assert rejected_magic.status_code == 400
+        assert "magic header" in rejected_magic.get_data(as_text=True)
+
+        rejected_log = client.post(
+            "/analyze-pcap",
+            data={
+                "pcap": (BytesIO(b"\xd4\xc3\xb2\xa1valid"), "ok.pcap"),
+                "access_log": (BytesIO(b"GET / HTTP/1.1"), "access.exe"),
+            },
+            content_type="multipart/form-data",
+        )
+        assert rejected_log.status_code == 400
+        assert "access_log" in rejected_log.get_data(as_text=True)
+
+        web_app.MAX_UPLOAD_BYTES = 8
+        rejected_size = client.post(
+            "/analyze-pcap",
+            data={"pcap": (BytesIO(b"\xd4\xc3\xb2\xa1" + b"x" * 16), "large.pcap")},
+            content_type="multipart/form-data",
+        )
+        assert rejected_size.status_code == 400
+        assert "limit" in rejected_size.get_data(as_text=True)
+        web_app.MAX_UPLOAD_BYTES = original_max_upload_bytes
+
+        accepted = client.post(
+            "/analyze-pcap",
+            data={
+                "pcap": (BytesIO(b"\xd4\xc3\xb2\xa1valid"), "ok.pcap"),
+                "access_log": (BytesIO(b"GET / HTTP/1.1"), "access.log"),
+                "app_log": (BytesIO(b"message=deserialization_exception"), "app.log"),
+            },
+            content_type="multipart/form-data",
+        )
+        assert accepted.status_code == 200
+        assert calls
+        assert calls[-1]["path"].name == "ok.pcap"
+        assert calls[-1]["path"].exists()
+        assert calls[-1]["kwargs"]["application_logs"][0].endswith("app_log_app.log")
+    finally:
+        for path in (
+            Path(web_app.CONFIG["paths"]["pcap_dir"]) / "ok.pcap",
+            Path(web_app.CONFIG["paths"]["csv_dir"]) / "uploads" / "access_log_access.log",
+            Path(web_app.CONFIG["paths"]["csv_dir"]) / "uploads" / "app_log_app.log",
+        ):
+            path.unlink(missing_ok=True)
+        web_app.run_pcap = original_run_pcap
+        web_app.MAX_UPLOAD_BYTES = original_max_upload_bytes
 
 
 if __name__ == "__main__":

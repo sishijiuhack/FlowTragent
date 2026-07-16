@@ -67,6 +67,48 @@ def parse_dns_log(path: str | Path, event_prefix: str = "dnslog") -> list[Networ
     return events
 
 
+def parse_zeek_log(path: str | Path, event_prefix: str = "zeek") -> list[NetworkEvent]:
+    """Parse Zeek http/dns/ssl/conn TSV logs into FlowTragent events."""
+    file_path = Path(path)
+    rows = _read_zeek_tsv(file_path)
+    if not rows:
+        return []
+    kind = _guess_zeek_kind(file_path, rows[0])
+    if kind == "http":
+        events = []
+        for index, row in enumerate(rows, start=1):
+            event = _access_row_to_event(_normalize_row(row), f"{event_prefix}-http-{index}")
+            if event:
+                events.append(event)
+        return events
+    if kind == "dns":
+        return _dns_rows_to_events(rows, event_prefix=f"{event_prefix}-dns")
+    return [_zeek_row_to_network_event(row, f"{event_prefix}-{kind}-{index}", kind) for index, row in enumerate(rows, start=1)]
+
+
+def parse_suricata_eve(path: str | Path, event_prefix: str = "suricata") -> list[NetworkEvent]:
+    """Parse Suricata EVE JSON/JSONL alert, flow, DNS, HTTP and TLS events."""
+    events: list[NetworkEvent] = []
+    for index, row in enumerate(_read_structured_or_lines(path), start=1):
+        if isinstance(row, str):
+            continue
+        row = _normalize_row(row)
+        event_type = str(row.get("event_type") or "event").lower()
+        if event_type == "dns":
+            events.extend(_dns_rows_to_events([row], event_prefix=f"{event_prefix}-dns{index}"))
+            continue
+        if event_type == "http":
+            event = _access_row_to_event(row, f"{event_prefix}-http-{index}")
+            if event:
+                events.append(event)
+            continue
+        if event_type == "alert":
+            events.append(_suricata_alert_to_event(row, f"{event_prefix}-alert-{index}"))
+            continue
+        events.append(_suricata_network_to_event(row, f"{event_prefix}-{event_type}-{index}", event_type))
+    return events
+
+
 def parse_endpoint_log(path: str | Path, event_prefix: str = "endpoint") -> list[LogEvent]:
     """Parse endpoint/process JSONL or CSV logs into LogEvent entries."""
     events: list[LogEvent] = []
@@ -109,10 +151,51 @@ def parse_endpoint_log(path: str | Path, event_prefix: str = "endpoint") -> list
     return events
 
 
+def parse_application_log(path: str | Path, event_prefix: str = "app") -> list[LogEvent]:
+    """Parse application JSONL/CSV/key-value logs into LogEvent entries."""
+    events: list[LogEvent] = []
+    for index, row in enumerate(_read_structured_or_lines(path), start=1):
+        if isinstance(row, str):
+            row = _parse_key_value_line(row)
+        row = _normalize_row(row)
+        message = _first(row, "message", "msg", "log", "event.original", "error.message", "exception", "stacktrace")
+        uri = _first(row, "uri", "path", "request_uri", "http.url", "url.path")
+        method = _first(row, "method", "http_method", "http.request.method")
+        status = _first(row, "status", "status_code", "http.status_code")
+        host = _first(row, "host", "hostname", "server", "service.name", "host.name")
+        src_ip = _first(row, "src_ip", "client_ip", "remote_addr", "source.ip")
+        dst_ip = _first(row, "dst_ip", "server_ip", "host_ip", "destination.ip") or host
+        timestamp = _parse_timestamp(_first(row, "timestamp", "time", "@timestamp", "ts", "event.created"))
+        payload = clean_payload(" ".join(str(item) for item in [method, uri, status, message] if item))
+        if not payload:
+            continue
+        events.append(
+            LogEvent(
+                event_id=f"{event_prefix}-{index}",
+                timestamp=timestamp,
+                src_ip=str(src_ip) if src_ip else None,
+                src_port=_to_int(_first(row, "src_port", "client_port", "source.port")),
+                dst_ip=str(dst_ip) if dst_ip else None,
+                dst_port=_to_int(_first(row, "dst_port", "server_port", "destination.port")) or 80,
+                protocol="APPLICATION",
+                payload_clean=payload,
+                summary=payload[:220],
+                log_type="application",
+                host=str(host) if host else None,
+                user=_first(row, "user", "username", "user.name"),
+                action=str(_first(row, "action", "event.action", "event_type") or "application_log"),
+            )
+        )
+    return events
+
+
 def parse_log_bundle(
     access_logs: Iterable[str | Path] | None = None,
     dns_logs: Iterable[str | Path] | None = None,
     endpoint_logs: Iterable[str | Path] | None = None,
+    application_logs: Iterable[str | Path] | None = None,
+    zeek_logs: Iterable[str | Path] | None = None,
+    suricata_logs: Iterable[str | Path] | None = None,
 ) -> list[NetworkEvent]:
     events: list[NetworkEvent] = []
     for idx, path in enumerate(access_logs or [], start=1):
@@ -121,6 +204,12 @@ def parse_log_bundle(
         events.extend(parse_dns_log(path, event_prefix=f"dnslog{idx}"))
     for idx, path in enumerate(endpoint_logs or [], start=1):
         events.extend(parse_endpoint_log(path, event_prefix=f"endpoint{idx}"))
+    for idx, path in enumerate(application_logs or [], start=1):
+        events.extend(parse_application_log(path, event_prefix=f"app{idx}"))
+    for idx, path in enumerate(zeek_logs or [], start=1):
+        events.extend(parse_zeek_log(path, event_prefix=f"zeek{idx}"))
+    for idx, path in enumerate(suricata_logs or [], start=1):
+        events.extend(parse_suricata_eve(path, event_prefix=f"suricata{idx}"))
     return sorted(events, key=lambda event: event.timestamp or 0)
 
 
@@ -195,7 +284,7 @@ def _parse_access_line(line: str, event_id: str) -> HttpEvent | None:
 
 def _access_row_to_event(row: dict[str, Any], event_id: str) -> HttpEvent | None:
     method = _first(row, "method", "http_method", "http.http_method")
-    uri = _first(row, "uri", "path", "url", "request_uri", "http.url", "url.path")
+    uri = _first(row, "uri", "path", "url", "request_uri", "http.url", "url.path", "http.uri")
     request = _first(row, "request", "request_line")
     if request and (not method or not uri):
         method, uri = _parse_request(str(request))
@@ -215,9 +304,9 @@ def _access_row_to_event(row: dict[str, Any], event_id: str) -> HttpEvent | None
         summary=payload[:220],
         method=str(method).upper(),
         uri=str(uri),
-        host=_first(row, "host", "http_host", "http.hostname"),
+        host=_first(row, "host", "http_host", "http.hostname", "hostname"),
         user_agent=user_agent,
-        status_code=_to_int(_first(row, "status", "status_code", "http.status")),
+        status_code=_to_int(_first(row, "status", "status_code", "http.status", "status_code")),
         response_size=_to_int(_first(row, "bytes", "size", "response_size", "http.length")),
     )
 
@@ -265,7 +354,142 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any]:
         normalized.setdefault("uri", http.get("url"))
         normalized.setdefault("user_agent", http.get("http_user_agent"))
         normalized.setdefault("status", http.get("status"))
+        normalized.setdefault("host", http.get("hostname") or http.get("http_host"))
+    if row.get("event_type") == "tls" and isinstance(row.get("tls"), dict):
+        tls = row["tls"]
+        normalized.setdefault("subject", tls.get("subject"))
+        normalized.setdefault("issuerdn", tls.get("issuerdn"))
+        normalized.setdefault("sni", tls.get("sni"))
+        normalized.setdefault("ja3", tls.get("ja3"))
+        normalized.setdefault("ja3s", tls.get("ja3s"))
+    if isinstance(row.get("flow"), dict):
+        flow = row["flow"]
+        normalized.setdefault("pkts_toserver", flow.get("pkts_toserver"))
+        normalized.setdefault("pkts_toclient", flow.get("pkts_toclient"))
+        normalized.setdefault("bytes_toserver", flow.get("bytes_toserver"))
+        normalized.setdefault("bytes_toclient", flow.get("bytes_toclient"))
     return normalized
+
+
+def _dns_rows_to_events(rows: list[dict[str, Any]], event_prefix: str) -> list[NetworkEvent]:
+    events: list[NetworkEvent] = []
+    for index, raw in enumerate(rows, start=1):
+        row = _normalize_row(raw)
+        query = _first(row, "query", "qname", "dns_query", "domain", "rrname", "dns.rrname")
+        if not query:
+            continue
+        src_ip = _first(row, "src_ip", "client", "client_ip", "source_ip", "id.orig_h")
+        dst_ip = _first(row, "dst_ip", "dest_ip", "server", "resolver", "destination_ip", "id.resp_h") or "dns-resolver"
+        qtype = _first(row, "qtype", "type", "dns_qtype", "qtype_name", "dns.type") or "A"
+        timestamp = _parse_timestamp(_first(row, "timestamp", "time", "@timestamp", "ts", "event.created"))
+        summary = f"DNS query {query} qtype={qtype}"
+        events.append(
+            NetworkEvent(
+                event_id=f"{event_prefix}-{index}",
+                timestamp=timestamp,
+                src_ip=src_ip,
+                src_port=_to_int(_first(row, "src_port", "client_port", "id.orig_p")),
+                dst_ip=dst_ip,
+                dst_port=_to_int(_first(row, "dst_port", "server_port", "id.resp_p")) or 53,
+                protocol="DNS",
+                payload_clean=summary,
+                summary=summary,
+                dns_query=str(query).rstrip("."),
+                dns_qtype=str(qtype),
+            )
+        )
+    return events
+
+
+def _guess_zeek_kind(path: Path, row: dict[str, Any]) -> str:
+    name = path.name.lower()
+    if "http" in name or "method" in row:
+        return "http"
+    if "dns" in name or "query" in row:
+        return "dns"
+    if "ssl" in name or "tls" in name or "server_name" in row or "subject" in row:
+        return "ssl"
+    if "conn" in name or "conn_state" in row:
+        return "conn"
+    return "network"
+
+
+def _zeek_row_to_network_event(row: dict[str, Any], event_id: str, kind: str) -> NetworkEvent:
+    row = _normalize_row(row)
+    src_ip = _first(row, "id.orig_h", "src_ip")
+    dst_ip = _first(row, "id.resp_h", "dst_ip")
+    src_port = _to_int(_first(row, "id.orig_p", "src_port"))
+    dst_port = _to_int(_first(row, "id.resp_p", "dst_port"))
+    proto = str(_first(row, "proto", "service") or kind).upper()
+    if kind == "ssl":
+        proto = "TLS"
+        sni = _first(row, "server_name", "sni")
+        subject = _first(row, "subject")
+        issuer = _first(row, "issuer", "issuerdn")
+        summary = f"TLS server_name={sni or '-'} subject={subject or '-'} issuer={issuer or '-'}"
+    else:
+        service = _first(row, "service") or "-"
+        state = _first(row, "conn_state") or "-"
+        summary = f"Zeek {kind} {src_ip}:{src_port} -> {dst_ip}:{dst_port} proto={proto} service={service} state={state}"
+    return NetworkEvent(
+        event_id=event_id,
+        timestamp=_parse_timestamp(_first(row, "ts", "timestamp", "time")),
+        src_ip=src_ip,
+        src_port=src_port,
+        dst_ip=dst_ip,
+        dst_port=dst_port,
+        protocol=proto,
+        payload_clean=clean_payload(summary),
+        summary=summary[:220],
+        raw_size=_to_int(_first(row, "orig_bytes", "resp_bytes")),
+    )
+
+
+def _suricata_alert_to_event(row: dict[str, Any], event_id: str) -> LogEvent:
+    alert = row.get("alert") if isinstance(row.get("alert"), dict) else {}
+    signature = _first(row, "alert.signature") or alert.get("signature") or "Suricata alert"
+    category = _first(row, "alert.category") or alert.get("category")
+    severity = _first(row, "alert.severity") or alert.get("severity")
+    payload = clean_payload(f"Suricata alert {signature} category={category or '-'} severity={severity or '-'}")
+    return LogEvent(
+        event_id=event_id,
+        timestamp=_parse_timestamp(_first(row, "timestamp", "@timestamp", "ts")),
+        src_ip=_first(row, "src_ip", "source.ip"),
+        src_port=_to_int(_first(row, "src_port", "source.port")),
+        dst_ip=_first(row, "dest_ip", "dst_ip", "destination.ip"),
+        dst_port=_to_int(_first(row, "dest_port", "dst_port", "destination.port")),
+        protocol="SURICATA_ALERT",
+        payload_clean=payload,
+        summary=payload[:220],
+        log_type="suricata_alert",
+        action=str(_first(row, "event_type") or "alert"),
+    )
+
+
+def _suricata_network_to_event(row: dict[str, Any], event_id: str, event_type: str) -> NetworkEvent:
+    proto = str(_first(row, "proto", "app_proto") or event_type).upper()
+    if event_type == "tls":
+        proto = "TLS"
+    summary = (
+        f"Suricata {event_type} "
+        f"{_first(row, 'src_ip', 'source.ip')}:{_first(row, 'src_port', 'source.port')} -> "
+        f"{_first(row, 'dest_ip', 'dst_ip', 'destination.ip')}:{_first(row, 'dest_port', 'dst_port', 'destination.port')} "
+        f"proto={proto} app={_first(row, 'app_proto') or '-'}"
+    )
+    if event_type == "tls":
+        summary += f" sni={_first(row, 'sni', 'tls.sni') or '-'} ja3={_first(row, 'ja3', 'tls.ja3') or '-'}"
+    return NetworkEvent(
+        event_id=event_id,
+        timestamp=_parse_timestamp(_first(row, "timestamp", "@timestamp", "ts")),
+        src_ip=_first(row, "src_ip", "source.ip"),
+        src_port=_to_int(_first(row, "src_port", "source.port")),
+        dst_ip=_first(row, "dest_ip", "dst_ip", "destination.ip"),
+        dst_port=_to_int(_first(row, "dest_port", "dst_port", "destination.port")),
+        protocol=proto,
+        payload_clean=clean_payload(summary),
+        summary=summary[:220],
+        raw_size=_to_int(_first(row, "bytes_toserver", "flow.bytes_toserver")),
+    )
 
 
 def _flatten_nested(source: dict[str, Any], output: dict[str, Any], prefix: str = "") -> None:

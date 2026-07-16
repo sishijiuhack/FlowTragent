@@ -1,5 +1,7 @@
 # FlowTragent 生产化部署说明
 
+> 历史参考：本文保留早期生产化部署思路。当前推荐入口请优先阅读 `FlowTragent_部署指南.md` 和 `scripts/install.sh`。
+
 ## 1. 推荐方式
 
 在 WSL Ubuntu 中：

@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}实时告警 - FlowTragent{% endblock %}
+{% block body %}
+<header>
+  <div>
+    <h1>实时告警</h1>
+    <p class="muted">准实时预筛结果与深度溯源报告</p>
+  </div>
+  <nav class="toolbar">
+    <a class="button secondary" href="{{ url_for('index') }}">返回首页</a>
+    <a class="button secondary" href="{{ url_for('alerts') }}">刷新</a>
+  </nav>
+</header>
+<section>
+  <h2>Attack Activities</h2>
+  {% if activities %}
+  <table>
+    <thead>
+      <tr>
+        <th>Activity</th>
+        <th>Source</th>
+        <th>Destination</th>
+        <th>Severity</th>
+        <th>Score</th>
+        <th>Alerts</th>
+        <th>Range</th>
+        <th>Clues</th>
+        <th>Reports</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for activity in activities %}
+      <tr>
+        <td><code>{{ activity.activity_id }}</code></td>
+        <td><code>{{ activity.source }}</code></td>
+        <td><code>{{ activity.destination }}</code></td>
+        <td><span class="pill {{ activity.severity }}">{{ activity.severity }}</span></td>
+        <td>{{ activity.max_risk_score }}</td>
+        <td>{{ activity.alert_count }} / {{ activity.occurrence_count }}</td>
+        <td><code>{{ activity.first_seen_at }}</code><br><code>{{ activity.last_seen_at }}</code></td>
+        <td>{{ activity.reason_families|join(", ") }}</td>
+        <td>
+          {% for report_path in activity.reports %}
+            {% set report_name = report_path.split('/')[-1].split('\\\\')[-1] %}
+            <a href="{{ url_for('view_report', filename=report_name, lang='zh') }}">report</a>{% if not loop.last %}, {% endif %}
+          {% else %}
+            <span class="muted">{{ activity.statuses|join(", ") }}</span>
+          {% endfor %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No correlated attack activities yet.</p>
+  {% endif %}
+</section>
+<section>
+  <h2>Alerts</h2>
+  {% if alerts %}
+  <table>
+    <thead>
+      <tr>
+        <th>时间</th>
+        <th>严重度</th>
+        <th>状态</th>
+        <th>分数</th>
+        <th>Count</th>
+        <th>Range</th>
+        <th>PCAP</th>
+        <th>原因</th>
+        <th>统计</th>
+        <th>报告</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for item in alerts %}
+      <tr>
+        <td><code>{{ item.created_at }}</code></td>
+        <td><span class="pill {{ item.severity }}">{{ item.severity }}</span></td>
+        <td>{{ item.status }}</td>
+        <td>{{ item.risk_score }}</td>
+        <td>{{ item.occurrence_count or 1 }}</td>
+        <td><code>{{ item.first_seen_at or item.created_at }}</code><br><code>{{ item.last_seen_at or item.updated_at }}</code></td>
+        <td><code>{{ item.segment_path }}</code></td>
+        <td>{{ item.reasons|join(", ") }}</td>
+        <td>
+          events={{ item.stats.get("event_count", 0) }},
+          http={{ item.stats.get("http_event_count", 0) }},
+          dns={{ item.stats.get("dns_event_count", 0) }},
+          tcp={{ item.stats.get("tcp_event_count", 0) }}
+        </td>
+        <td>
+          {% if item.report_path %}
+            {% set report_name = item.report_path.split('/')[-1].split('\\\\')[-1] %}
+            <a href="{{ url_for('view_report', filename=report_name, lang='zh') }}">中文</a>
+            |
+            <a href="{{ url_for('view_report', filename=report_name, lang='en') }}">English</a>
+          {% elif item.error %}
+            <span class="muted">{{ item.error }}</span>
+          {% else %}
+            <span class="muted">{{ item.recommended_action }}</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">暂无实时告警。启动 `scripts/live_analyzer_worker.py` 后，这里会显示预筛与分析结果。</p>
+  {% endif %}
+</section>
+{% endblock %}

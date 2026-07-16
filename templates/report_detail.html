@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{{ filename }} - FlowTragent{% endblock %}
+{% block body %}
+<header>
+  <div>
+    <p><a href="{{ url_for('index') }}">{{ '返回首页' if lang == 'zh' else 'Back to home' }}</a></p>
+    <h1>{{ filename }}</h1>
+  </div>
+  <nav class="tabs">
+    <a class="button {{ 'active' if lang == 'zh' else 'secondary' }}" href="{{ url_for('view_report', filename=base_md_name, lang='zh') }}">中文</a>
+    <a class="button {{ 'active' if lang == 'en' else 'secondary' }}" href="{{ url_for('view_report', filename=base_md_name, lang='en') }}">English</a>
+  </nav>
+</header>
+
+<section class="meta">
+  <div><div class="label">{{ '结论' if lang == 'zh' else 'Verdict' }}</div>{{ verdict }}</div>
+  <div><div class="label">{{ '置信度' if lang == 'zh' else 'Confidence' }}</div>{{ confidence }}</div>
+  <div><div class="label">Payloads</div>{{ analysis.get("payload_count", 0) }}</div>
+  <div><div class="label">{{ '图谱' if lang == 'zh' else 'Graph' }}</div>{{ graph.get("nodes", [])|length }} nodes / {{ graph.get("edges", [])|length }} edges</div>
+</section>
+
+{% if graph.get(mermaid_key) %}
+<section>
+  <h2>{{ '证据图谱' if lang == 'zh' else 'Evidence Graph' }}</h2>
+  <div class="mermaid-panel">
+    <div class="mermaid">
+{{ graph.get(mermaid_key) }}
+    </div>
+  </div>
+  {% if graph.get(dot_key) %}
+  <h3>Graphviz SVG</h3>
+  <object class="graph-svg" data="{{ url_for('graph_svg', filename=json_name, lang=lang) }}" type="image/svg+xml">
+    <pre>{{ graph.get(dot_key) }}</pre>
+  </object>
+  {% endif %}
+  <details>
+    <summary>{{ '查看 Mermaid / DOT 源码' if lang == 'zh' else 'Show Mermaid / DOT source' }}</summary>
+    <h3>Mermaid</h3>
+    <pre>{{ graph.get(mermaid_key) }}</pre>
+    <h3>Graphviz DOT</h3>
+    <pre>{{ graph.get(dot_key, "") }}</pre>
+  </details>
+</section>
+{% endif %}
+
+{% if analysis.get("attack_chain") %}
+<section>
+  <h2>{{ '攻击链' if lang == 'zh' else 'Attack Chain' }}</h2>
+  <table>
+    <thead><tr><th>{{ '阶段' if lang == 'zh' else 'Stage' }}</th><th>{{ '技术' if lang == 'zh' else 'Technique' }}</th><th>{{ '置信度' if lang == 'zh' else 'Confidence' }}</th><th>{{ '证据' if lang == 'zh' else 'Evidence' }}</th></tr></thead>
+    <tbody>
+    {% for item in analysis.get("attack_chain", []) %}
+    <tr>
+      <td>{{ translate_stage(item.get("stage")) if lang == 'zh' else item.get("stage") }}</td>
+      <td>{{ item.get("technique") }}</td>
+      <td>{{ translate_confidence(item.get("confidence")) if lang == 'zh' else item.get("confidence") }}</td>
+      <td><code>{{ item.get("evidence_ids", [])|join(", ") }}</code></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if graph.get("edges") %}
+<section>
+  <h2>{{ '图谱边' if lang == 'zh' else 'Graph Edges' }}</h2>
+  <table>
+    <thead><tr><th>{{ '来源' if lang == 'zh' else 'Source' }}</th><th>{{ '关系' if lang == 'zh' else 'Relation' }}</th><th>{{ '目标' if lang == 'zh' else 'Target' }}</th><th>{{ '置信度' if lang == 'zh' else 'Confidence' }}</th><th>{{ '原因' if lang == 'zh' else 'Reason' }}</th></tr></thead>
+    <tbody>
+    {% for item in graph.get("edges", [])[:40] %}
+    <tr>
+      <td><code>{{ item.get("source_id") }}</code></td>
+      <td>{{ translate_relation(item.get("relation")) if lang == 'zh' else item.get("relation") }}</td>
+      <td><code>{{ item.get("target_id") }}</code></td>
+      <td>{{ translate_confidence(item.get("confidence")) if lang == 'zh' else item.get("confidence") }}</td>
+      <td>{{ item.get("reason") }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section class="actions">
+  <a class="button active" href="{{ url_for('download_report', filename=display_md_name) }}">{{ '下载当前 Markdown' if lang == 'zh' else 'Download current Markdown' }}</a>
+  <a class="button secondary" href="{{ url_for('download_report', filename=json_name) }}">JSON</a>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='report.js') }}"></script>
+{% endblock %}

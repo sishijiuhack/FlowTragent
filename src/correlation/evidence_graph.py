@@ -41,6 +41,8 @@ def build_evidence_graph(
     edges.extend(_asset_edges(events))
     edges.extend(_temporal_edges(events, time_window=time_window))
     edges.extend(_endpoint_outbound_edges(events))
+    edges.extend(_endpoint_artifact_edges(events))
+    edges.extend(_application_confirmation_edges(events))
     edges = _dedupe_edges(edges)
     nodes.extend(_external_nodes(edges, nodes))
     graph = {
@@ -309,6 +311,56 @@ def _endpoint_outbound_edges(events: list[NetworkEvent]) -> list[EvidenceEdge]:
     return edges
 
 
+def _endpoint_artifact_edges(events: list[NetworkEvent]) -> list[EvidenceEdge]:
+    edges = []
+    endpoint_events = [event for event in events if event.protocol == "ENDPOINT"]
+    for event in endpoint_events:
+        file_path = str(getattr(event, "file_path", "") or "")
+        if not file_path:
+            continue
+        action = str(getattr(event, "action", "") or "").lower()
+        relation = "endpoint_file_artifact" if _looks_like_web_artifact(file_path) else "endpoint_file_write"
+        confidence = "high" if _looks_like_web_artifact(file_path) or any(marker in action for marker in ("file_create", "file_write", "created")) else "medium"
+        edges.append(
+            EvidenceEdge(
+                source_id=event.event_id,
+                target_id=f"artifact:{file_path}",
+                relation=relation,
+                confidence=confidence,
+                reason="Endpoint telemetry records a file artifact or file write after exploitation-related activity.",
+            )
+        )
+    return edges
+
+
+def _application_confirmation_edges(events: list[NetworkEvent]) -> list[EvidenceEdge]:
+    edges = []
+    app_events = [event for event in events if event.protocol == "APPLICATION"]
+    network_events = [event for event in events if event.protocol in {"HTTP", "TCP"}]
+    for app_event in app_events:
+        app_text = app_event.payload_clean.lower()
+        if not _is_app_confirmation(app_text):
+            continue
+        for event in network_events:
+            if app_event.event_id == event.event_id:
+                continue
+            if not _same_asset(event, app_event):
+                continue
+            if not _near_in_time(event, app_event, 300.0):
+                continue
+            confidence = "high" if _shared_request_token(event, app_event) else "medium"
+            edges.append(
+                EvidenceEdge(
+                    source_id=event.event_id,
+                    target_id=app_event.event_id,
+                    relation="application_log_confirmation",
+                    confidence=confidence,
+                    reason="Application log confirms an error or execution signal on the same asset shortly after network evidence.",
+                )
+            )
+    return edges
+
+
 def _same_asset(network_event: NetworkEvent, endpoint_event: NetworkEvent) -> bool:
     endpoint_ids = {
         value
@@ -319,6 +371,31 @@ def _same_asset(network_event: NetworkEvent, endpoint_event: NetworkEvent) -> bo
         if value
     }
     return bool(endpoint_ids & {network_event.src_ip, network_event.dst_ip})
+
+
+def _near_in_time(first: NetworkEvent, second: NetworkEvent, window: float) -> bool:
+    if first.timestamp is None or second.timestamp is None:
+        return True
+    return 0 <= (second.timestamp - first.timestamp) <= window
+
+
+def _shared_request_token(first: NetworkEvent, second: NetworkEvent) -> bool:
+    second_text = second.payload_clean.lower()
+    for value in (getattr(first, "uri", None), getattr(first, "host", None), first.dst_ip):
+        if value and str(value).lower() in second_text:
+            return True
+    return False
+
+
+def _looks_like_web_artifact(file_path: str) -> bool:
+    lowered = file_path.lower()
+    web_roots = ("/www/", "/html/", "/htdocs/", "/webapps/", "\\inetpub\\", "\\wwwroot\\")
+    web_exts = (".jsp", ".php", ".aspx", ".ashx", ".war")
+    return any(root in lowered for root in web_roots) and any(lowered.endswith(ext) for ext in web_exts)
+
+
+def _is_app_confirmation(text: str) -> bool:
+    return any(marker in text for marker in ("exception", "stack trace", "jndi lookup", "ognl", "template error", "deserialization", "webshell"))
 
 
 def _dedupe_edges(edges: list[EvidenceEdge]) -> list[EvidenceEdge]:
@@ -338,7 +415,22 @@ def _external_nodes(edges: list[EvidenceEdge], nodes: list[EvidenceNode]) -> lis
     external = []
     for edge in edges:
         for node_id in (edge.source_id, edge.target_id):
-            if not node_id.startswith("external:") or node_id in known:
+            if node_id in known:
+                continue
+            if node_id.startswith("artifact:"):
+                known.add(node_id)
+                external.append(
+                    EvidenceNode(
+                        node_id=node_id,
+                        node_type="FileArtifact",
+                        label=node_id.removeprefix("artifact:"),
+                        timestamp=None,
+                        source=None,
+                        target=node_id.removeprefix("artifact:"),
+                    )
+                )
+                continue
+            if not node_id.startswith("external:"):
                 continue
             known.add(node_id)
             external.append(
@@ -388,6 +480,8 @@ def _node_type_label(node_type: str, language: str) -> str:
         "DNS": "DNS查询",
         "TCP": "TCP连接",
         "ENDPOINT": "终端日志",
+        "APPLICATION": "应用日志",
+        "FileArtifact": "文件痕迹",
         "ExternalDestination": "外部目的地",
         "Evidence": "证据",
         "External": "外部节点",
@@ -403,6 +497,9 @@ def _relation_label(relation: str, language: str) -> str:
         "process_external_connection": "进程外联",
         "process_to_network_destination": "进程到网络目的地",
         "dns_context_for_process": "DNS与进程上下文",
+        "endpoint_file_artifact": "终端文件痕迹",
+        "endpoint_file_write": "终端文件写入",
+        "application_log_confirmation": "应用日志确认",
         "related": "关联",
     }
     if relation.startswith("c2_sequence:"):

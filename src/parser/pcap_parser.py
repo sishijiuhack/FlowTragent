@@ -36,7 +36,7 @@ def pcap_to_csv(pcap_path: str, output_csv: str) -> int:
 def parse_network_events(pcap_path: str) -> list[NetworkEvent]:
     """Extract HTTP, DNS, and lightweight TCP events from a PCAP."""
     try:
-        from scapy.all import DNS, DNSQR, IP, IPv6, Raw, TCP, UDP, rdpcap
+        from scapy.all import DNS, DNSQR, ICMP, IP, IPv6, Raw, TCP, UDP, rdpcap
     except Exception as exc:
         raise RuntimeError("scapy is required for PCAP parsing. Install with: pip install scapy") from exc
 
@@ -115,6 +115,30 @@ def parse_network_events(pcap_path: str) -> list[NetworkEvent]:
                     summary=summary,
                     raw_size=len(raw_payload),
                     tcp_flags=flags,
+                )
+            )
+            continue
+
+        if ICMP in packet:
+            icmp_type = int(packet[ICMP].type)
+            icmp_code = int(packet[ICMP].code)
+            raw_payload = bytes(packet[Raw].load) if Raw in packet else b""
+            payload_preview = clean_payload(raw_payload.decode("utf-8", errors="ignore")) if raw_payload else ""
+            summary = f"ICMP {src_ip} -> {dst_ip} type={icmp_type} code={icmp_code} size={len(raw_payload)}"
+            if payload_preview:
+                summary = f"{summary} payload={payload_preview[:120]}"
+            events.append(
+                NetworkEvent(
+                    event_id=f"pkt-{index}",
+                    timestamp=timestamp,
+                    src_ip=src_ip,
+                    src_port=None,
+                    dst_ip=dst_ip,
+                    dst_port=None,
+                    protocol="ICMP",
+                    payload_clean=payload_preview or summary,
+                    summary=summary,
+                    raw_size=len(raw_payload),
                 )
             )
 

