@@ -57,7 +57,6 @@ curl http://127.0.0.1:5000/metrics
 - [架构中文说明](user_docs/ARCHITECTURE_CN.md)
 - [产品白皮书](user_docs/FlowTragent_产品白皮书.md)
 - [开发报告](user_docs/FlowTragent_开发报告.md)
-- [DataCon 检索评估报告](user_docs/FlowTragent_DataCon检索评估报告.md)
 - [贡献指南中文说明](CONTRIBUTING_CN.md)
 - [更新日志中文说明](CHANGELOG_CN.md)
 

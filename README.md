@@ -268,7 +268,6 @@ Do not commit runtime or sensitive artifacts:
 - [Chinese README](README_CN.md)
 - [Chinese API Reference](user_docs/API_CN.md)
 - [Chinese Architecture](user_docs/ARCHITECTURE_CN.md)
-- [DataCon Retrieval Evaluation Report](user_docs/FlowTragent_DataCon检索评估报告.md)
 - [Contributing Guide](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 - [License](LICENSE)
