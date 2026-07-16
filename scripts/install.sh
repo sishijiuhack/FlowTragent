@@ -243,7 +243,7 @@ run_local() {
   if [[ "$NO_START" -eq 0 && "$WITH_SYSTEMD" -eq 0 ]]; then
     export FLOWTRAGENT_HOST="$HOST" FLOWTRAGENT_PORT="$PORT" FLOWTRAGENT_PYTHON="$VENV_DIR/bin/python"
     print_ready
-    exec scripts/run_web_prod.sh
+    exec bash scripts/run_web_prod.sh
   fi
 }
 
