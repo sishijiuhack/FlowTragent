@@ -8,6 +8,7 @@ WITH_SYSTEMD=0
 HOST="${FLOWTRAGENT_HOST:-127.0.0.1}"
 PORT="${FLOWTRAGENT_PORT:-5000}"
 VENV_DIR="${FLOWTRAGENT_VENV:-.venv}"
+PYTHON_BIN=""
 
 usage() {
   cat <<'USAGE'
@@ -48,6 +49,59 @@ done
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_root"
 
+python_supported() {
+  local candidate="$1"
+  "$candidate" - <<'PY'
+import sys
+major, minor = sys.version_info[:2]
+raise SystemExit(0 if (major == 3 and 10 <= minor < 13) else 1)
+PY
+}
+
+python_version() {
+  "$1" - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+PY
+}
+
+resolve_python() {
+  local candidates=()
+  if [[ -n "${FLOWTRAGENT_PYTHON:-}" ]]; then
+    candidates+=("$FLOWTRAGENT_PYTHON")
+  fi
+  candidates+=(python3.12 python3.11 /usr/bin/python3.12 /usr/bin/python3.11 python3)
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if command -v "$candidate" >/dev/null 2>&1 && python_supported "$candidate"; then
+      PYTHON_BIN="$(command -v "$candidate")"
+      echo "Using Python: $PYTHON_BIN ($(python_version "$PYTHON_BIN"))"
+      return
+    fi
+  done
+
+  echo "FlowTragent requires Python >=3.10 and <3.13 for the pinned ML dependencies." >&2
+  echo "Install Python 3.12/3.11, or run with FLOWTRAGENT_PYTHON=/path/to/python3.12 bash scripts/install.sh" >&2
+  exit 1
+}
+
+ensure_compatible_venv() {
+  if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+    return
+  fi
+  if "$VENV_DIR/bin/python" - <<'PY'
+import sys
+major, minor = sys.version_info[:2]
+raise SystemExit(0 if (major == 3 and 10 <= minor < 13) else 1)
+PY
+  then
+    return
+  fi
+  echo "Existing $VENV_DIR uses unsupported Python $("$VENV_DIR/bin/python" -c 'import sys; print(".".join(map(str, sys.version_info[:3])))'). Recreating it."
+  rm -rf "$VENV_DIR"
+}
+
 choose_port() {
   local candidate="$1"
   if command -v python3 >/dev/null 2>&1; then
@@ -71,7 +125,7 @@ ensure_token() {
   if [[ -n "${FLOWTRAGENT_TOKEN:-}" ]]; then
     return
   fi
-  FLOWTRAGENT_TOKEN="$(python3 - <<'PY'
+  FLOWTRAGENT_TOKEN="$("${PYTHON_BIN:-python3}" - <<'PY'
 import secrets
 print(secrets.token_urlsafe(24))
 PY
@@ -90,7 +144,7 @@ install_system_packages() {
   if command -v apt-get >/dev/null 2>&1; then
     echo "Installing system packages with apt-get."
     sudo apt-get update
-    sudo apt-get install -y python3-venv python3-pip tcpdump graphviz
+    sudo apt-get install -y python3.12-venv python3.12-dev python3-venv python3-pip tcpdump graphviz
   else
     echo "apt-get not found; skipping system package installation."
   fi
@@ -103,10 +157,11 @@ build_demo_index() {
 }
 
 run_local() {
-  command -v python3 >/dev/null 2>&1 || { echo "python3 is required." >&2; exit 1; }
   install_system_packages
+  resolve_python
   ensure_token
-  python3 -m venv "$VENV_DIR"
+  ensure_compatible_venv
+  "$PYTHON_BIN" -m venv "$VENV_DIR"
   "$VENV_DIR/bin/python" -m pip install --upgrade pip setuptools wheel
   "$VENV_DIR/bin/python" -m pip install -r requirements.txt
   "$VENV_DIR/bin/python" -m pip install gunicorn
