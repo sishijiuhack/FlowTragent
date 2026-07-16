@@ -9,6 +9,9 @@ HOST="${FLOWTRAGENT_HOST:-127.0.0.1}"
 PORT="${FLOWTRAGENT_PORT:-5000}"
 VENV_DIR="${FLOWTRAGENT_VENV:-.venv}"
 PYTHON_BIN=""
+PIP_DEFAULT_TIMEOUT="${FLOWTRAGENT_PIP_TIMEOUT:-60}"
+PIP_RETRIES="${FLOWTRAGENT_PIP_RETRIES:-2}"
+PYTORCH_CPU_INDEX="${FLOWTRAGENT_PYTORCH_CPU_INDEX:-https://download.pytorch.org/whl/cpu}"
 
 usage() {
   cat <<'USAGE'
@@ -32,6 +35,67 @@ print_ready() {
   echo "Health:  curl http://$HOST:$PORT/health"
   echo "Metrics: curl http://$HOST:$PORT/metrics"
   echo "Token:   ${FLOWTRAGENT_TOKEN:-'(not set)'}"
+}
+
+pip_indexes() {
+  if [[ -n "${FLOWTRAGENT_PIP_INDEX_URL:-}" ]]; then
+    printf '%s\n' "$FLOWTRAGENT_PIP_INDEX_URL"
+    return
+  fi
+  cat <<'EOF'
+https://pypi.org/simple
+https://pypi.tuna.tsinghua.edu.cn/simple
+https://mirrors.aliyun.com/pypi/simple
+https://mirrors.tencent.com/pypi/simple
+https://repo.huaweicloud.com/repository/pypi/simple
+EOF
+}
+
+pip_install_with_fallback() {
+  local label="$1"
+  shift
+  local index
+  local first=1
+  while IFS= read -r index; do
+    [[ -z "$index" ]] && continue
+    if [[ "$first" -eq 1 ]]; then
+      echo "Installing $label from $index"
+      first=0
+    else
+      echo "Retrying $label with mirror: $index"
+    fi
+    if "$VENV_DIR/bin/python" -m pip install \
+      --default-timeout "$PIP_DEFAULT_TIMEOUT" \
+      --retries "$PIP_RETRIES" \
+      --index-url "$index" \
+      "$@"; then
+      return
+    fi
+  done < <(pip_indexes)
+  echo "Failed to install $label from all configured pip indexes." >&2
+  echo "You can set FLOWTRAGENT_PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple and rerun." >&2
+  exit 1
+}
+
+install_torch_cpu() {
+  if "$VENV_DIR/bin/python" - <<'PY'
+try:
+    import torch
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if torch.__version__.startswith("2.3.1") else 1)
+PY
+  then
+    return
+  fi
+  echo "Installing PyTorch CPU wheel first to avoid the large default PyPI download."
+  if ! "$VENV_DIR/bin/python" -m pip install \
+    --default-timeout "$PIP_DEFAULT_TIMEOUT" \
+    --retries "$PIP_RETRIES" \
+    --index-url "$PYTORCH_CPU_INDEX" \
+    "torch==2.3.1"; then
+    echo "PyTorch CPU index failed; continuing with normal pip mirror fallback."
+  fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -162,9 +226,10 @@ run_local() {
   ensure_token
   ensure_compatible_venv
   "$PYTHON_BIN" -m venv "$VENV_DIR"
-  "$VENV_DIR/bin/python" -m pip install --upgrade pip setuptools wheel
-  "$VENV_DIR/bin/python" -m pip install -r requirements.txt
-  "$VENV_DIR/bin/python" -m pip install gunicorn
+  pip_install_with_fallback "pip tooling" --upgrade pip setuptools wheel
+  install_torch_cpu
+  pip_install_with_fallback "Python dependencies" -r requirements.txt
+  pip_install_with_fallback "gunicorn" gunicorn
   mkdir -p logs reports data/pcap data/csv data/index data/rag data/live/incoming data/tmp
   build_demo_index
   if [[ "$WITH_SYSTEMD" -eq 1 ]]; then
